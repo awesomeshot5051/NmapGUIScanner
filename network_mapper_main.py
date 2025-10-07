@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
-Network Topology Mapper
-Cross-platform network visualization tool using Nmap
+Network Topology Mapper - updated with hostname/common/weak service toggles
 """
 
 import os
@@ -17,25 +16,21 @@ from flask_cors import CORS
 import networkx as nx
 import threading
 import queue
-from collections import defaultdict
 
 app = Flask(__name__)
 CORS(app)
 
-# Configuration
 UPLOAD_FOLDER = Path(tempfile.gettempdir()) / "network_mapper_uploads"
 UPLOAD_FOLDER.mkdir(exist_ok=True)
 app.config['UPLOAD_FOLDER'] = str(UPLOAD_FOLDER)
-app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB max file size
+app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024
 
-# Output queues for streaming
 output_queues = {}
 
 # -------------------------------
-# Nmap Execution
+# Nmap Execution helpers
 # -------------------------------
 def check_nmap_installed():
-    """Check if nmap is available"""
     try:
         subprocess.run(["nmap", "--version"], capture_output=True, check=True)
         return True
@@ -43,13 +38,13 @@ def check_nmap_installed():
         return False
 
 def run_nmap(targets, options, scan_id, show_terminal=True, show_webpage=False):
-    """Execute nmap with specified options"""
     if not check_nmap_installed():
         raise RuntimeError("Nmap is not installed or not in PATH")
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     output_file = UPLOAD_FOLDER / f"scan_{timestamp}.xml"
 
+    # Build command: nmap [options] targets...
     cmd = ["nmap", "-oX", str(output_file)] + options + targets
 
     try:
@@ -61,14 +56,12 @@ def run_nmap(targets, options, scan_id, show_terminal=True, show_webpage=False):
             bufsize=1
         )
 
-        # Create output queue if webpage output is requested
         if show_webpage and scan_id:
             output_queues[scan_id] = queue.Queue()
 
         stdout_lines = []
         stderr_lines = []
 
-        # Read stdout in real-time
         for line in iter(process.stdout.readline, ''):
             if line:
                 stdout_lines.append(line)
@@ -78,8 +71,6 @@ def run_nmap(targets, options, scan_id, show_terminal=True, show_webpage=False):
                     output_queues[scan_id].put(line.rstrip())
 
         process.stdout.close()
-
-        # Read stderr
         stderr = process.stderr.read()
         if stderr:
             stderr_lines.append(stderr)
@@ -91,7 +82,6 @@ def run_nmap(targets, options, scan_id, show_terminal=True, show_webpage=False):
         process.stderr.close()
         return_code = process.wait()
 
-        # Signal end of output
         if show_webpage and scan_id and scan_id in output_queues:
             output_queues[scan_id].put("__END__")
 
@@ -107,71 +97,9 @@ def run_nmap(targets, options, scan_id, show_terminal=True, show_webpage=False):
         raise RuntimeError(f"Failed to run nmap: {str(e)}")
 
 # -------------------------------
-# Network Role Detection
-# -------------------------------
-def identify_network_roles(G):
-    """Identify special network roles based on ports and services"""
-    roles = {}
-
-    for node_id, node_data in G.nodes(data=True):
-        if node_data.get("type") != "host":
-            continue
-
-        node_roles = []
-        ports = node_data.get("ports", [])
-        port_numbers = [int(p["port"]) for p in ports]
-        services = [p["service"].lower() for p in ports]
-
-        # DNS Server (port 53)
-        if 53 in port_numbers or "domain" in services:
-            node_roles.append("DNS Server")
-
-        # DHCP Server (ports 67, 68)
-        if 67 in port_numbers or 68 in port_numbers or "dhcp" in services:
-            node_roles.append("DHCP Server")
-
-        # Domain Controller (ports 88, 389, 636, 3268, 3269)
-        dc_ports = [88, 389, 636, 3268, 3269]
-        if any(p in port_numbers for p in dc_ports) or "ldap" in services or "kerberos" in services:
-            node_roles.append("Domain Controller")
-
-        # Web Server
-        if 80 in port_numbers or 443 in port_numbers or "http" in services or "https" in services:
-            node_roles.append("Web Server")
-
-        # Mail Server
-        mail_ports = [25, 110, 143, 465, 587, 993, 995]
-        mail_services = ["smtp", "pop3", "imap"]
-        if any(p in port_numbers for p in mail_ports) or any(s in services for s in mail_services):
-            node_roles.append("Mail Server")
-
-        # Database Server
-        db_ports = [1433, 3306, 5432, 27017, 1521]
-        db_services = ["mysql", "postgresql", "mssql", "mongodb", "oracle"]
-        if any(p in port_numbers for p in db_ports) or any(s in services for s in db_services):
-            node_roles.append("Database Server")
-
-        # File Server
-        file_ports = [139, 445, 2049]
-        file_services = ["smb", "netbios", "nfs"]
-        if any(p in port_numbers for p in file_ports) or any(s in services for s in file_services):
-            node_roles.append("File Server")
-
-        # Gateway/Router - identify by having most connections or being .1/.254
-        ip = node_data.get("ip", "")
-        if ip.endswith(".1") or ip.endswith(".254"):
-            node_roles.append("Gateway")
-
-        if node_roles:
-            roles[node_id] = node_roles
-
-    return roles
-
-# -------------------------------
-# XML Parsing
+# XML Parsing (unchanged)
 # -------------------------------
 def parse_nmap_xml(xml_file):
-    """Parse Nmap XML output into graph structure"""
     G = nx.Graph()
     scan_info = {
         "scan_time": None,
@@ -180,119 +108,145 @@ def parse_nmap_xml(xml_file):
         "hosts_up": 0
     }
 
-    try:
-        tree = ET.parse(xml_file)
-        root = tree.getroot()
+    tree = ET.parse(xml_file)
+    root = tree.getroot()
 
-        # Extract scan metadata
-        scan_info["nmap_version"] = root.get("version")
-        runstats = root.find("runstats/finished")
-        if runstats is not None:
-            scan_info["scan_time"] = runstats.get("timestr")
+    scan_info["nmap_version"] = root.get("version")
+    runstats = root.find("runstats/finished")
+    if runstats is not None:
+        scan_info["scan_time"] = runstats.get("timestr")
 
-        hosts_up = 0
-        for host in root.findall("host"):
-            status = host.find("status")
-            if status is None or status.get("state") != "up":
+    hosts_up = 0
+    for host in root.findall("host"):
+        status = host.find("status")
+        if status is None or status.get("state") != "up":
+            continue
+
+        hosts_up += 1
+
+        addr_elem = host.find("address[@addrtype='ipv4']")
+        if addr_elem is None:
+            addr_elem = host.find("address[@addrtype='ipv6']")
+        if addr_elem is None:
+            continue
+
+        addr = addr_elem.get("addr")
+
+        hostname = None
+        hostnames = host.find("hostnames")
+        if hostnames is not None:
+            hostname_elem = hostnames.find("hostname")
+            if hostname_elem is not None:
+                hostname = hostname_elem.get("name")
+
+        os_match = None
+        os_accuracy = 0
+        osmatch = host.find(".//osmatch")
+        if osmatch is not None:
+            os_match = osmatch.get("name")
+            os_accuracy = int(osmatch.get("accuracy", 0))
+
+        mac_addr = None
+        mac_vendor = None
+        mac_elem = host.find("address[@addrtype='mac']")
+        if mac_elem is not None:
+            mac_addr = mac_elem.get("addr")
+            mac_vendor = mac_elem.get("vendor")
+
+        node_label = hostname if hostname else addr
+        G.add_node(addr,
+                   label=node_label,
+                   ip=addr,
+                   hostname=hostname,
+                   os=os_match,
+                   os_accuracy=os_accuracy,
+                   mac=mac_addr,
+                   mac_vendor=mac_vendor,
+                   type="host",
+                   ports=[])
+
+        for port in host.findall(".//port"):
+            portid = port.get("portid")
+            protocol = port.get("protocol")
+
+            state_elem = port.find("state")
+            state = state_elem.get("state") if state_elem is not None else "unknown"
+
+            if state != "open":
                 continue
 
-            hosts_up += 1
+            service_elem = port.find("service")
+            service = "unknown"
+            version = None
+            product = None
 
-            # Get IP address
-            addr_elem = host.find("address[@addrtype='ipv4']")
-            if addr_elem is None:
-                addr_elem = host.find("address[@addrtype='ipv6']")
-            if addr_elem is None:
-                continue
+            if service_elem is not None:
+                service = service_elem.get("name", "unknown")
+                product = service_elem.get("product")
+                version = service_elem.get("version")
 
-            addr = addr_elem.get("addr")
+            port_info = {
+                "port": portid,
+                "protocol": protocol,
+                "state": state,
+                "service": service,
+                "product": product,
+                "version": version
+            }
 
-            # Get hostname
-            hostname = None
-            hostnames = host.find("hostnames")
-            if hostnames is not None:
-                hostname_elem = hostnames.find("hostname")
-                if hostname_elem is not None:
-                    hostname = hostname_elem.get("name")
+            G.nodes[addr]["ports"].append(port_info)
 
-            # Get OS info
-            os_match = None
-            os_accuracy = 0
-            osmatch = host.find(".//osmatch")
-            if osmatch is not None:
-                os_match = osmatch.get("name")
-                os_accuracy = int(osmatch.get("accuracy", 0))
-
-            # Get MAC address
-            mac_addr = None
-            mac_vendor = None
-            mac_elem = host.find("address[@addrtype='mac']")
-            if mac_elem is not None:
-                mac_addr = mac_elem.get("addr")
-                mac_vendor = mac_elem.get("vendor")
-
-            # Add host node
-            node_label = hostname if hostname else addr
-            G.add_node(addr,
-                       label=node_label,
-                       ip=addr,
-                       hostname=hostname,
-                       os=os_match,
-                       os_accuracy=os_accuracy,
-                       mac=mac_addr,
-                       mac_vendor=mac_vendor,
-                       type="host",
-                       ports=[])
-
-            # Parse ports
-            for port in host.findall(".//port"):
-                portid = port.get("portid")
-                protocol = port.get("protocol")
-
-                state_elem = port.find("state")
-                state = state_elem.get("state") if state_elem is not None else "unknown"
-
-                if state != "open":
-                    continue
-
-                service_elem = port.find("service")
-                service = "unknown"
-                version = None
-                product = None
-
-                if service_elem is not None:
-                    service = service_elem.get("name", "unknown")
-                    product = service_elem.get("product")
-                    version = service_elem.get("version")
-
-                port_info = {
-                    "port": portid,
-                    "protocol": protocol,
-                    "state": state,
-                    "service": service,
-                    "product": product,
-                    "version": version
-                }
-
-                G.nodes[addr]["ports"].append(port_info)
-
-        scan_info["total_hosts"] = len(root.findall("host"))
-        scan_info["hosts_up"] = hosts_up
-
-    except Exception as e:
-        raise RuntimeError(f"Failed to parse XML: {str(e)}")
+    scan_info["total_hosts"] = len(root.findall("host"))
+    scan_info["hosts_up"] = hosts_up
 
     return G, scan_info
 
 # -------------------------------
-# Graph Export
+# Role detection (unchanged)
 # -------------------------------
-def graph_to_json(G, scan_info, show_services=False, show_infra=False):
-    """Convert graph to JSON format for visualization"""
+def identify_network_roles(G):
+    roles = {}
+    for node_id, node_data in G.nodes(data=True):
+        if node_data.get("type") != "host":
+            continue
+        node_roles = []
+        ports = node_data.get("ports", [])
+        port_numbers = [int(p["port"]) for p in ports] if ports else []
+        services = [p.get("service","").lower() for p in ports] if ports else []
+
+        if 53 in port_numbers or "domain" in services:
+            node_roles.append("DNS Server")
+        if 67 in port_numbers or 68 in port_numbers or "dhcp" in services:
+            node_roles.append("DHCP Server")
+        dc_ports = [88, 389, 636, 3268, 3269]
+        if any(p in port_numbers for p in dc_ports) or any(s in services for s in ("ldap","kerberos")):
+            node_roles.append("Domain Controller")
+        if 80 in port_numbers or 443 in port_numbers or any(s in services for s in ("http","https")):
+            node_roles.append("Web Server")
+        mail_ports = [25,110,143,465,587,993,995]
+        if any(p in port_numbers for p in mail_ports) or any(s in services for s in ("smtp","pop3","imap")):
+            node_roles.append("Mail Server")
+        db_ports = [1433,3306,5432,27017,1521]
+        if any(p in port_numbers for p in db_ports) or any(s in services for s in ("mysql","postgresql","mssql","mongodb","oracle")):
+            node_roles.append("Database Server")
+        file_ports = [139,445,2049]
+        if any(p in port_numbers for p in file_ports) or any(s in services for s in ("smb","netbios","nfs")):
+            node_roles.append("File Server")
+        ip = node_data.get("ip","")
+        if ip.endswith(".1") or ip.endswith(".254"):
+            node_roles.append("Gateway")
+        if node_roles:
+            roles[node_id] = node_roles
+    return roles
+
+# -------------------------------
+# Graph conversion + weak highlighting
+# -------------------------------
+WEAK_SERVICES = {"ftp","telnet","http","pop3","imap","smtp","tftp","rlogin","rsh","finger"}
+
+def graph_to_json(G, scan_info, show_services=False, show_infra=False, weak_highlight=False):
     nodes = []
     links = []
-
-    # Identify network roles
     roles = identify_network_roles(G)
 
     for node_id, node_data in G.nodes(data=True):
@@ -318,6 +272,7 @@ def graph_to_json(G, scan_info, show_services=False, show_infra=False):
         # Add service nodes if requested
         if show_services:
             for port in node_data.get("ports", []):
+                service_name = (port.get("service") or "").lower()
                 service_label = f"{port['service']}:{port['port']}/{port['protocol']}"
                 if port.get('product'):
                     service_label = f"{port['product']} ({port['service']}:{port['port']})"
@@ -329,10 +284,14 @@ def graph_to_json(G, scan_info, show_services=False, show_infra=False):
                     "type": "service",
                     "port": port['port'],
                     "protocol": port['protocol'],
-                    "service": port['service'],
+                    "service": port.get('service'),
                     "product": port.get('product'),
                     "version": port.get('version')
                 }
+                # Mark weak services if requested
+                if weak_highlight and any(ws in service_name for ws in WEAK_SERVICES):
+                    service_node["color"] = "red"
+                    service_node["risk"] = "weak"
                 nodes.append(service_node)
                 links.append({
                     "source": str(node_id),
@@ -342,13 +301,8 @@ def graph_to_json(G, scan_info, show_services=False, show_infra=False):
 
     # Add infrastructure connections if requested
     if show_infra:
-        # Find gateway (likely .1 or .254, or node with most roles)
-        gateway_candidates = []
-        for node_id, node_roles in roles.items():
-            if "Gateway" in node_roles or "DHCP Server" in node_roles:
-                gateway_candidates.append(node_id)
-
-        # Connect all hosts to gateway
+        # Choose gateway candidate(s)
+        gateway_candidates = [nid for nid, nroles in roles.items() if "Gateway" in nroles or "DHCP Server" in nroles]
         if gateway_candidates:
             gateway = gateway_candidates[0]
             for node_id, node_data in G.nodes(data=True):
@@ -359,7 +313,6 @@ def graph_to_json(G, scan_info, show_services=False, show_infra=False):
                         "relation": "gateway"
                     })
 
-        # Connect hosts to DNS servers
         dns_servers = [nid for nid, nroles in roles.items() if "DNS Server" in nroles]
         for dns in dns_servers:
             for node_id, node_data in G.nodes(data=True):
@@ -377,48 +330,57 @@ def graph_to_json(G, scan_info, show_services=False, show_infra=False):
     }
 
 # -------------------------------
-# Flask Routes
+# Global graph state
+# -------------------------------
+current_graph = None
+current_scan_info = None
+
+# -------------------------------
+# Flask endpoints
 # -------------------------------
 @app.route("/")
 def index():
-    """Main page"""
     return render_template("index.html")
 
 @app.route("/api/check-nmap", methods=["GET"])
 def check_nmap():
-    """Check if Nmap is installed"""
     return jsonify({"installed": check_nmap_installed()})
 
 @app.route("/api/scan", methods=["POST"])
 def start_scan():
-    """Start a new Nmap scan"""
+    global current_graph, current_scan_info
     try:
         data = request.json
-        targets = data.get("targets", "").strip()
+        targets_raw = data.get("targets", "").strip()
+        if not targets_raw:
+            return jsonify({"error":"No targets specified"}), 400
 
-        if not targets:
-            return jsonify({"error": "No targets specified"}), 400
-
-        # Get output options
+        # Output prefs
         show_terminal = data.get("show_terminal", True)
         show_webpage = data.get("show_webpage", False)
+        hostname_detection = data.get("hostname_detection", False)
+        common_services = data.get("common_services", False)
+        weak_highlight = data.get("weak_highlight", False)
 
-        # Generate scan ID for streaming
-        scan_id = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        # Build target list
+        target_list = [t.strip() for t in targets_raw.split(",") if t.strip()]
 
-        # Build nmap options
+        # Build nmap options list
         options = []
 
-        # Port options
+        # Port selection
         if data.get("all_ports"):
             options.append("-p-")
         elif data.get("top_ports"):
-            top = data.get("top_ports_count", 100)
+            top = int(data.get("top_ports_count", 100))
             options.extend(["--top-ports", str(top)])
         elif data.get("custom_ports"):
             options.extend(["-p", data.get("custom_ports")])
+        else:
+            # default: top scan (--top-ports) or full TCP scan
+            options.extend(["-p-", "-sS"])
 
-        # Service/Version detection
+        # Service/version
         if data.get("service_version"):
             options.append("-sV")
 
@@ -426,82 +388,119 @@ def start_scan():
         if data.get("os_detection"):
             options.append("-O")
 
-        # SNMP scanning
+        # SNMP quick UDP
+        script_list = []
         if data.get("snmp_scan"):
-            options.append("-sU")
-            options.extend(["-p", "161"])
+            # add UDP scan of 161 (light)
+            options.extend(["-sU", "-p", "161"])
+            script_list.append("snmp-info")
 
-        # Timing
-        timing = data.get("timing", "3")
+        # NSE script scans if requested
+        if data.get("script_scan"):
+            script_list.append("default,discovery")
+
+        # Hostname detection: reverse DNS, NetBIOS, DNS service probe
+        if hostname_detection:
+            options.append("-R")  # reverse DNS
+            # add NetBIOS + DNS broadcast discovery scripts
+            script_list.append("nbstat")
+            script_list.append("broadcast-dns-service-discovery")
+
+        if common_services:
+            # enable UDP scan, but do not replace user port list
+            options.append("-sU")
+
+            # Append common ports *only if no -p/-top-ports provided earlier*
+            has_port_flag = any(opt.startswith("-p") or opt == "--top-ports" for opt in options)
+            tcp_ports = "21,22,23,25,53,67,68,80,110,139,143,161,389,443,445,3389,5353,8080,8443"
+            udp_ports = "53,67,68,69,123,161,162,5353,1900"
+
+            if not has_port_flag:
+                # If no ports defined yet, define these
+                options.extend(["-p", f"T:{tcp_ports},U:{udp_ports}"])
+            else:
+                # If ports already defined, add these common ones to existing port list
+                for i, opt in enumerate(options):
+                    if opt == "-p":
+                        existing_ports = options[i + 1]
+                        merged_ports = f"{existing_ports},T:{tcp_ports},U:{udp_ports}"
+                        options[i + 1] = merged_ports
+                        break
+
+
+        # Timing template
+        timing = str(data.get("timing", "3"))
         options.append(f"-T{timing}")
 
-        # Additional options
-        if data.get("script_scan"):
-            options.extend(["--script", "default,discovery"])
+        # Merge script_list if any
+        if script_list:
+            # dedupe and create comma separated
+            unique_scripts = ",".join(sorted(set(",".join(script_list).split(","))))
+            options.extend(["--script", unique_scripts])
 
-        target_list = [t.strip() for t in targets.split(",") if t.strip()]
+        # For safety, ensure target_list is passed as individual args
+        scan_id = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
 
-        # Run scan in background thread if showing webpage output
+        # Run scan - if webpage streaming requested, run in background and stream output
         if show_webpage:
-            def run_scan_thread():
+            def thread_scan():
                 try:
                     xml_file, output = run_nmap(target_list, options, scan_id, show_terminal, show_webpage)
                     G, scan_info = parse_nmap_xml(xml_file)
-                    graph_data = graph_to_json(G, scan_info, show_services=False, show_infra=False)
+                    graph = graph_to_json(G, scan_info, show_services=False, show_infra=False, weak_highlight=weak_highlight)
 
-                    # Store result in queue
+                    # store results globally
+                    nonlocal_vars = globals()
+                    nonlocal_vars['current_graph'] = G
+                    nonlocal_vars['current_scan_info'] = scan_info
+
+                    # put result in queue for SSE consumer
                     if scan_id in output_queues:
-                        output_queues[scan_id].put(f"__RESULT__{json.dumps({'success': True, 'graph': graph_data, 'xml_file': os.path.basename(xml_file)})}")
+                        output_queues[scan_id].put(f"__RESULT__{json.dumps({'success':True,'graph':graph,'xml_file':os.path.basename(xml_file)})}")
                 except Exception as e:
                     if scan_id in output_queues:
                         output_queues[scan_id].put(f"__ERROR__{str(e)}")
 
-            thread = threading.Thread(target=run_scan_thread)
-            thread.daemon = True
-            thread.start()
+            t = threading.Thread(target=thread_scan)
+            t.daemon = True
+            t.start()
 
             return jsonify({"success": True, "scan_id": scan_id, "streaming": True})
+
         else:
-            # Run synchronously
             xml_file, output = run_nmap(target_list, options, None, show_terminal, False)
             G, scan_info = parse_nmap_xml(xml_file)
-            graph_data = graph_to_json(G, scan_info, show_services=False, show_infra=False)
+            # convert to JSON graph; keep show_services False by default (frontend can request)
+            graph = graph_to_json(G, scan_info, show_services=False, show_infra=False, weak_highlight=weak_highlight)
 
-            return jsonify({
-                "success": True,
-                "graph": graph_data,
-                "xml_file": os.path.basename(xml_file)
-            })
+            # store current graph for further toggles
+            current_graph = G
+            current_scan_info = scan_info
+
+            return jsonify({"success": True, "graph": graph, "xml_file": os.path.basename(xml_file)})
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# Store current graph globally for toggle operations
-current_graph = None
-current_scan_info = None
-
 @app.route('/api/graph')
 def graph_data():
-    """Return graph data with optional infrastructure overlay"""
     global current_graph, current_scan_info
-
     show_infra = request.args.get('show_infra', '0') == '1'
     show_services = request.args.get('show_services', '0') == '1'
+    weak_highlight = request.args.get('weak_highlight', '0') == '1'
 
     if current_graph is None:
         return jsonify({"nodes": [], "links": [], "scan_info": {}})
 
-    return jsonify(graph_to_json(current_graph, current_scan_info,
-                                 show_services=show_services, show_infra=show_infra))
+    graph = graph_to_json(current_graph, current_scan_info, show_services=show_services, show_infra=show_infra, weak_highlight=weak_highlight)
+    return jsonify(graph)
 
 @app.route("/api/scan-stream/<scan_id>")
 def scan_stream(scan_id):
-    """Stream scan output to webpage"""
     def generate():
         if scan_id not in output_queues:
             yield f"data: {json.dumps({'error': 'Invalid scan ID'})}\n\n"
             return
-
         q = output_queues[scan_id]
         while True:
             try:
@@ -510,12 +509,13 @@ def scan_stream(scan_id):
                     break
                 elif line.startswith("__RESULT__"):
                     result_data = json.loads(line[10:])
-                    # Store graph globally
+                    # store graph globally
                     global current_graph, current_scan_info
                     if result_data.get('success') and result_data.get('graph'):
-                        # Reconstruct the graph from the result
+                        # rebuild current_graph for toggles: add host nodes with ports
                         G = nx.Graph()
                         for node in result_data['graph']['nodes']:
+                            # store original node data as attributes (simple)
                             G.add_node(node['id'], **node)
                         current_graph = G
                         current_scan_info = result_data['graph']['scan_info']
@@ -528,61 +528,42 @@ def scan_stream(scan_id):
                     yield f"data: {json.dumps({'output': line})}\n\n"
             except queue.Empty:
                 yield f"data: {json.dumps({'keepalive': True})}\n\n"
-
-        # Cleanup
         if scan_id in output_queues:
             del output_queues[scan_id]
-
     return Response(generate(), mimetype='text/event-stream')
 
 @app.route("/api/upload", methods=["POST"])
 def upload_file():
-    """Upload and parse existing Nmap XML file"""
     global current_graph, current_scan_info
-
     try:
         if "file" not in request.files:
             return jsonify({"error": "No file provided"}), 400
-
         file = request.files["file"]
         if file.filename == "":
             return jsonify({"error": "No file selected"}), 400
-
         if not file.filename.endswith(".xml"):
             return jsonify({"error": "Only XML files are supported"}), 400
-
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"upload_{timestamp}_{file.filename}"
         filepath = UPLOAD_FOLDER / filename
         file.save(str(filepath))
-
         G, scan_info = parse_nmap_xml(str(filepath))
         current_graph = G
         current_scan_info = scan_info
-        graph_data = graph_to_json(G, scan_info, show_services=False, show_infra=False)
-
-        return jsonify({
-            "success": True,
-            "graph": graph_data,
-            "xml_file": filename
-        })
-
+        graph = graph_to_json(G, scan_info, show_services=False, show_infra=False, weak_highlight=False)
+        return jsonify({"success": True, "graph": graph, "xml_file": filename})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 @app.route("/api/download/<filename>")
 def download_file(filename):
-    """Download XML file"""
     return send_from_directory(app.config['UPLOAD_FOLDER'], filename, as_attachment=True)
 
 if __name__ == "__main__":
     print("=" * 60)
-    print("Network Topology Mapper")
+    print("Network Topology Mapper - server starting")
     print("=" * 60)
-    print(f"Starting server...")
     print(f"Upload folder: {UPLOAD_FOLDER}")
     print(f"Nmap installed: {check_nmap_installed()}")
-    print(f"\nAccess the application at: http://localhost:5000")
-    print("=" * 60)
-
+    print(f"Open http://localhost:5000")
     app.run(debug=True, host="0.0.0.0", port=5000, threaded=True)

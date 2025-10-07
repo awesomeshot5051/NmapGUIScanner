@@ -1,12 +1,12 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
     <title>Network Topology Mapper</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
     <script src="../static/Script.js"></script>
-    <link rel="stylesheet" href="../static/Style.css" type = "text/css"/>
+    <link rel="stylesheet" href="../static/Style.css" type="text/css"/>
 </head>
 <body>
 <div class="container">
@@ -23,7 +23,7 @@
                 <div class="section-title">New Scan</div>
                 <div class="form-group">
                     <label>Targets (comma-separated)</label>
-                    <input type="text" id="targets" placeholder="192.168.1.0/24, 10.0.0.1">
+                    <label for="targets"></label><input type="text" id="targets" placeholder="192.168.1.0/24, 10.0.0.1">
                 </div>
 
                 <div class="form-group">
@@ -32,7 +32,7 @@
                         <input type="radio" name="port_mode" id="top_ports" value="top" checked>
                         <label for="top_ports">Top Ports</label>
                     </div>
-                    <input type="number" id="top_ports_count" value="100" min="1" max="1000" style="margin-left: 26px; margin-bottom: 10px;">
+                    <label for="top_ports_count"></label><input type="number" id="top_ports_count" value="100" min="1" max="1000" style="margin-left: 26px; margin-bottom: 10px;">
 
                     <div class="checkbox-group">
                         <input type="radio" name="port_mode" id="all_ports" value="all">
@@ -43,11 +43,12 @@
                         <input type="radio" name="port_mode" id="custom_ports_radio" value="custom">
                         <label for="custom_ports_radio">Custom Ports</label>
                     </div>
-                    <input type="text" id="custom_ports" placeholder="22,80,443,8080" style="margin-left: 26px;">
+                    <label for="custom_ports">Custom Ports</label><input type="text" id="custom_ports" placeholder="22,80,443,8080" style="margin-left: 26px;">
                 </div>
 
                 <div class="form-group">
                     <label>Scan Options</label>
+
                     <div class="checkbox-group">
                         <input type="checkbox" id="service_version">
                         <label for="service_version">Service Version Detection</label>
@@ -58,12 +59,29 @@
                     </div>
                     <div class="checkbox-group">
                         <input type="checkbox" id="script_scan">
-                        <label for="script_scan">Script Scanning (NSE)</label>
+                        <label for="script_scan">Script Scanning</label>
                     </div>
                     <div class="checkbox-group">
                         <input type="checkbox" id="snmp_scan">
                         <label for="snmp_scan">SNMP Discovery</label>
                     </div>
+
+                    <!-- NEW: hostname / common services / weak service toggles -->
+                    <hr style="margin:8px 0;">
+                    <div class="checkbox-group">
+                        <input type="checkbox" id="toggle-hostnames">
+                        <label for="toggle-hostnames">Attempt Hostname Detection</label>
+                    </div>
+                    <div class="checkbox-group">
+                        <input type="checkbox" id="toggle-common-services">
+                        <label for="toggle-common-services">Detect Common TCP &amp; UDP Services</label>
+                    </div>
+                    <div class="checkbox-group">
+                        <input type="checkbox" id="toggle-weak-services">
+                        <label for="toggle-weak-services">Highlight Weak Services</label>
+                    </div>
+                    <hr style="margin:8px 0;">
+
                 </div>
 
                 <div class="form-group">
@@ -88,6 +106,7 @@
 
                 <div class="form-group">
                     <label>Timing Template</label>
+                    <label for="timing">Timing</label>
                     <select id="timing">
                         <option value="0">Paranoid (0)</option>
                         <option value="1">Sneaky (1)</option>
@@ -105,9 +124,7 @@
                 <div class="section-title">Upload Scan</div>
                 <div class="file-upload">
                     <input type="file" id="file-input" accept=".xml" onchange="uploadFile()">
-                    <label for="file-input" class="file-upload-label">
-                        Choose Nmap XML File
-                    </label>
+                    <label for="file-input" class="file-upload-label">Choose Nmap XML File</label>
                 </div>
             </div>
 
@@ -130,6 +147,10 @@
                 <div class="legend-item">
                     <div class="legend-color" style="background: #f093fb;"></div>
                     <span>Service</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #e74c3c;"></div>
+                    <span>Weak / Insecure Service</span>
                 </div>
             </div>
 
