@@ -4,6 +4,7 @@ Network Topology Mapper - updated with hostname/common/weak service toggles
 """
 
 import os
+import platform
 import sys
 import subprocess
 import tempfile
@@ -37,15 +38,31 @@ def check_nmap_installed():
     except (subprocess.CalledProcessError, FileNotFoundError):
         return False
 
+# -------------------------------
+# Nmap Execution helpers (UPDATED)
+# -------------------------------
 def run_nmap(targets, options, scan_id, show_terminal=True, show_webpage=False):
+    """
+    Runs nmap with the options+targets list.
+    Debug: prints the exact command executed so you can troubleshoot missing flags.
+    """
     if not check_nmap_installed():
         raise RuntimeError("Nmap is not installed or not in PATH")
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     output_file = UPLOAD_FOLDER / f"scan_{timestamp}.xml"
 
-    # Build command: nmap [options] targets...
+    # Build command: nmap -oX <file> [options...] [targets...]
+    # Note: options is expected to be a list (flags and their args as separate items)
     cmd = ["nmap", "-oX", str(output_file)] + options + targets
+
+    # DEBUG: print exact command to stdout so you can verify flags/order
+    try:
+        debug_cmd = " ".join(shlex_quote(p) for p in cmd)
+    except Exception:
+        # fallback if shlex_quote unavailable
+        debug_cmd = " ".join(cmd)
+    print(f"[DEBUG] Running nmap command: {debug_cmd}")
 
     try:
         process = subprocess.Popen(
@@ -62,6 +79,7 @@ def run_nmap(targets, options, scan_id, show_terminal=True, show_webpage=False):
         stdout_lines = []
         stderr_lines = []
 
+        # Read stdout in realtime and forward to console/queue if requested
         for line in iter(process.stdout.readline, ''):
             if line:
                 stdout_lines.append(line)
@@ -71,6 +89,8 @@ def run_nmap(targets, options, scan_id, show_terminal=True, show_webpage=False):
                     output_queues[scan_id].put(line.rstrip())
 
         process.stdout.close()
+
+        # capture stderr too
         stderr = process.stderr.read()
         if stderr:
             stderr_lines.append(stderr)
@@ -90,11 +110,24 @@ def run_nmap(targets, options, scan_id, show_terminal=True, show_webpage=False):
             raise RuntimeError(f"Nmap scan failed: {error_msg}")
 
         return str(output_file), ''.join(stdout_lines)
+
     except Exception as e:
         if show_webpage and scan_id and scan_id in output_queues:
             output_queues[scan_id].put(f"ERROR: {str(e)}")
             output_queues[scan_id].put("__END__")
         raise RuntimeError(f"Failed to run nmap: {str(e)}")
+
+
+# small helper to safely quote args when printing (works on both Windows/Linux)
+def shlex_quote(s):
+    try:
+        # prefer shlex.quote if available (POSIX)
+        import shlex
+        return shlex.quote(s)
+    except Exception:
+        # fallback: wrap containing spaces in double quotes
+        return f"\"{s}\"" if " " in s else s
+
 
 # -------------------------------
 # XML Parsing (unchanged)
@@ -347,6 +380,10 @@ def check_nmap():
     return jsonify({"installed": check_nmap_installed()})
 
 @app.route("/api/scan", methods=["POST"])
+# -------------------------------
+# start_scan (UPDATED)
+# -------------------------------
+@app.route("/api/scan", methods=["POST"])
 def start_scan():
     global current_graph, current_scan_info
     try:
@@ -355,7 +392,7 @@ def start_scan():
         if not targets_raw:
             return jsonify({"error":"No targets specified"}), 400
 
-        # Output prefs
+        # Output prefs & toggles
         show_terminal = data.get("show_terminal", True)
         show_webpage = data.get("show_webpage", False)
         hostname_detection = data.get("hostname_detection", False)
@@ -365,22 +402,31 @@ def start_scan():
         # Build target list
         target_list = [t.strip() for t in targets_raw.split(",") if t.strip()]
 
-        # Build nmap options list
+        # Build nmap options list (as tokens)
         options = []
 
-        # Port selection
+        # --- PORT SELECTION (preserve exactly what user sets) ---
+        port_flag_present = False
         if data.get("all_ports"):
+            # all ports is -p-
             options.append("-p-")
+            port_flag_present = True
         elif data.get("top_ports"):
             top = int(data.get("top_ports_count", 100))
+            # top-ports is its own flag with arg
             options.extend(["--top-ports", str(top)])
+            port_flag_present = True
         elif data.get("custom_ports"):
             options.extend(["-p", data.get("custom_ports")])
+            port_flag_present = True
         else:
-            # default: top scan (--top-ports) or full TCP scan
+            # default behavior: do a full TCP scan (use SYN where available)
+            # represent as explicit -sS and -p- so we don't rely on defaults
+            # but keep -p- to indicate full TCP port coverage
             options.extend(["-p-", "-sS"])
+            port_flag_present = True
 
-        # Service/version
+        # Service/version detection
         if data.get("service_version"):
             options.append("-sV")
 
@@ -388,11 +434,23 @@ def start_scan():
         if data.get("os_detection"):
             options.append("-O")
 
-        # SNMP quick UDP
+        # SNMP quick UDP (light)
         script_list = []
         if data.get("snmp_scan"):
-            # add UDP scan of 161 (light)
-            options.extend(["-sU", "-p", "161"])
+            # request UDP scan and ensure we include UDP scanning
+            # but prefer not to overwrite -p/-p- if already set
+            if "-sU" not in options:
+                options.append("-sU")
+            # if user hasn't set specific ports and hasn't set -p-, we add UDP 161
+            if not any((opt == "-p-" or opt == "--top-ports" or opt == "-p") for opt in options):
+                options.extend(["-p", "U:161"])
+            else:
+                # If -p exists and is a specific list, merge 161 if feasible
+                for i, opt in enumerate(options):
+                    if opt == "-p":
+                        # merge into existing port string
+                        options[i+1] = f"{options[i+1]},U:161"
+                        break
             script_list.append("snmp-info")
 
         # NSE script scans if requested
@@ -401,47 +459,73 @@ def start_scan():
 
         # Hostname detection: reverse DNS, NetBIOS, DNS service probe
         if hostname_detection:
-            options.append("-R")  # reverse DNS
-            # add NetBIOS + DNS broadcast discovery scripts
+            # reverse DNS lookup
+            options.append("-R")
             script_list.append("nbstat")
             script_list.append("broadcast-dns-service-discovery")
 
+        # COMMON SERVICES: add TCP+UDP common ports as augmentation (do NOT override)
         if common_services:
-            # enable UDP scan, but do not replace user port list
-            options.append("-sU")
+            # ensure both TCP and UDP scans are requested
+            # prefer SYN on non-windows, TCP-connect on windows
+            if platform.system().lower().startswith("win"):
+                if "-sT" not in options and "-sS" not in options:
+                    options.append("-sT")
+            else:
+                if "-sS" not in options and "-sT" not in options:
+                    options.append("-sS")
+            # ensure UDP scan flag present
+            if "-sU" not in options:
+                options.append("-sU")
 
-            # Append common ports *only if no -p/-top-ports provided earlier*
-            has_port_flag = any(opt.startswith("-p") or opt == "--top-ports" for opt in options)
+            # Common port lists (strings)
             tcp_ports = "21,22,23,25,53,67,68,80,110,139,143,161,389,443,445,3389,5353,8080,8443"
             udp_ports = "53,67,68,69,123,161,162,5353,1900"
 
-            if not has_port_flag:
-                # If no ports defined yet, define these
-                options.extend(["-p", f"T:{tcp_ports},U:{udp_ports}"])
+            # If user explicitly asked for -p- or --top-ports, don't add another -p
+            if any(opt == "-p-" or opt == "--top-ports" for opt in options):
+                # nothing to merge; -p- already covers everything
+                pass
             else:
-                # If ports already defined, add these common ones to existing port list
+                # If there's an explicit -p <list>, merge the T: and U: segments safely
+                found_p_index = None
                 for i, opt in enumerate(options):
                     if opt == "-p":
-                        existing_ports = options[i + 1]
-                        merged_ports = f"{existing_ports},T:{tcp_ports},U:{udp_ports}"
-                        options[i + 1] = merged_ports
+                        found_p_index = i
                         break
 
+                if found_p_index is not None:
+                    existing = options[found_p_index + 1]
+                    # If existing already contains T: or U:, just append other segments
+                    # else append T:... and U:... with a comma
+                    merged = existing
+                    # Avoid duplicating exact segments — keep simple merge
+                    if "T:" not in merged:
+                        merged = f"{merged},T:{tcp_ports}"
+                    if "U:" not in merged:
+                        merged = f"{merged},U:{udp_ports}"
+                    options[found_p_index + 1] = merged
+                else:
+                    # No explicit -p present -> add a -p with both T: and U: lists
+                    options.extend(["-p", f"T:{tcp_ports},U:{udp_ports}"])
 
         # Timing template
         timing = str(data.get("timing", "3"))
         options.append(f"-T{timing}")
 
-        # Merge script_list if any
+        # Merge script_list if any (dedupe)
         if script_list:
-            # dedupe and create comma separated
             unique_scripts = ",".join(sorted(set(",".join(script_list).split(","))))
             options.extend(["--script", unique_scripts])
 
-        # For safety, ensure target_list is passed as individual args
+        # For safety, ensure targets are passed as separate args
         scan_id = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
 
-        # Run scan - if webpage streaming requested, run in background and stream output
+        # DEBUG: show the final options array for troubleshooting
+        print(f"[DEBUG] Final nmap options list: {options}")
+        print(f"[DEBUG] Targets: {target_list}")
+
+        # Run scan - streaming vs synchronous
         if show_webpage:
             def thread_scan():
                 try:
@@ -454,7 +538,6 @@ def start_scan():
                     nonlocal_vars['current_graph'] = G
                     nonlocal_vars['current_scan_info'] = scan_info
 
-                    # put result in queue for SSE consumer
                     if scan_id in output_queues:
                         output_queues[scan_id].put(f"__RESULT__{json.dumps({'success':True,'graph':graph,'xml_file':os.path.basename(xml_file)})}")
                 except Exception as e:
@@ -470,10 +553,8 @@ def start_scan():
         else:
             xml_file, output = run_nmap(target_list, options, None, show_terminal, False)
             G, scan_info = parse_nmap_xml(xml_file)
-            # convert to JSON graph; keep show_services False by default (frontend can request)
             graph = graph_to_json(G, scan_info, show_services=False, show_infra=False, weak_highlight=weak_highlight)
 
-            # store current graph for further toggles
             current_graph = G
             current_scan_info = scan_info
 
@@ -481,6 +562,7 @@ def start_scan():
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
 
 @app.route('/api/graph')
 def graph_data():
