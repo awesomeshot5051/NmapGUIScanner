@@ -19,12 +19,21 @@ After downloading/extracting, your directory should contain:
 
 ```
 network-topology-mapper/
+<<<<<<< HEAD
 ├── app.py                    # Main application (REQUIRED)
 ├── requirements.txt          # Python dependencies (REQUIRED)
 ├── setup.sh                  # Linux setup script (REQUIRED for Linux)
 ├── setup.bat                 # Windows setup script (REQUIRED for Windows)
 ├── start.sh                  # Linux quick-start (OPTIONAL)
 ├── start.bat                 # Windows quick-start (OPTIONAL)
+=======
+├── network_mapper_main.py                    # Main application (REQUIRED)
+├── requirements.txt          # Python dependencies (REQUIRED)
+├── linux_setup.sh                  # Linux setup script (REQUIRED for Linux)
+├── windows_setup.bat                 # Windows setup script (REQUIRED for Windows)
+├── start_scripts.sh                  # Linux quick-start (OPTIONAL)
+├── start_app.bat                 # Windows quick-start (OPTIONAL)
+>>>>>>> 5153688 (Updated it to work properly with Subnets and VLANs. Duplicated MAC addresses with 2 different devices, are automatically identified as a single device with multiple subnets)
 ├── README.md                 # Documentation (OPTIONAL)
 ├── INSTALL.md                # This file (OPTIONAL)
 └── templates/
@@ -32,10 +41,17 @@ network-topology-mapper/
 ```
 
 **CRITICAL FILES** (must be present):
+<<<<<<< HEAD
 - `app.py`
 - `templates/index.html`
 - `requirements.txt`
 - `setup.sh` (Linux) or `setup.bat` (Windows)
+=======
+- `network_mapper_main.py`
+- `templates/index.html`
+- `requirements.txt`
+- `linux_setup.sh` (Linux) or `windows_setup.bat` (Windows)
+>>>>>>> 5153688 (Updated it to work properly with Subnets and VLANs. Duplicated MAC addresses with 2 different devices, are automatically identified as a single device with multiple subnets)
 
 ---
 
@@ -81,14 +97,23 @@ cd network-topology-mapper
 ### Step 3: Make Scripts Executable
 
 ```bash
+<<<<<<< HEAD
 chmod +x setup.sh
 chmod +x start.sh  # if present
+=======
+chmod +x linux_setup.sh
+chmod +x start_scripts.sh  # if present
+>>>>>>> 5153688 (Updated it to work properly with Subnets and VLANs. Duplicated MAC addresses with 2 different devices, are automatically identified as a single device with multiple subnets)
 ```
 
 ### Step 4: Run Setup
 
 ```bash
+<<<<<<< HEAD
 ./setup.sh
+=======
+./linux_setup.sh
+>>>>>>> 5153688 (Updated it to work properly with Subnets and VLANs. Duplicated MAC addresses with 2 different devices, are automatically identified as a single device with multiple subnets)
 ```
 
 **What this script does:**
@@ -105,11 +130,19 @@ If you didn't start it during setup:
 
 ```bash
 # Using start script (recommended)
+<<<<<<< HEAD
 ./start.sh
 
 # Or manually
 source venv/bin/activate
 python app.py
+=======
+./start_scripts.sh
+
+# Or manually
+source venv/bin/activate
+python network_mapper_main.py
+>>>>>>> 5153688 (Updated it to work properly with Subnets and VLANs. Duplicated MAC addresses with 2 different devices, are automatically identified as a single device with multiple subnets)
 ```
 
 ---
@@ -167,7 +200,11 @@ cd C:\network-topology-mapper
 ### Step 4: Run Setup
 
 ```batch
+<<<<<<< HEAD
 setup.bat
+=======
+windows_setup.bat
+>>>>>>> 5153688 (Updated it to work properly with Subnets and VLANs. Duplicated MAC addresses with 2 different devices, are automatically identified as a single device with multiple subnets)
 ```
 
 **What this script does:**
@@ -184,11 +221,19 @@ If you didn't start it during setup:
 
 ```batch
 REM Using start script (recommended)
+<<<<<<< HEAD
 start.bat
 
 REM Or manually
 venv\Scripts\activate.bat
 python app.py
+=======
+start_app.bat
+
+REM Or manually
+venv\Scripts\activate.bat
+python network_mapper_main.py
+>>>>>>> 5153688 (Updated it to work properly with Subnets and VLANs. Duplicated MAC addresses with 2 different devices, are automatically identified as a single device with multiple subnets)
 ```
 
 ---
@@ -340,7 +385,11 @@ sudo dnf install nmap  # Fedora/RHEL
 **Linux Solution:**
 ```bash
 # Run with sudo for advanced scans (OS detection, SYN scan)
+<<<<<<< HEAD
 sudo python app.py
+=======
+sudo python network_mapper_main.py
+>>>>>>> 5153688 (Updated it to work properly with Subnets and VLANs. Duplicated MAC addresses with 2 different devices, are automatically identified as a single device with multiple subnets)
 
 # Or modify scan options (avoid -O, use -sT)
 ```
@@ -349,11 +398,19 @@ sudo python app.py
 Run Command Prompt as Administrator:
 1. Search "cmd"
 2. Right-click → "Run as administrator"
+<<<<<<< HEAD
 3. Navigate to folder and run setup.bat
 
 ### Issue: "Port 5000 already in use"
 
 **Solution:** Change the port in `app.py`:
+=======
+3. Navigate to folder and run windows_setup.bat
+
+### Issue: "Port 5000 already in use"
+
+**Solution:** Change the port in `network_mapper_main.py`:
+>>>>>>> 5153688 (Updated it to work properly with Subnets and VLANs. Duplicated MAC addresses with 2 different devices, are automatically identified as a single device with multiple subnets)
 ```python
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=8080)  # Changed from 5000
@@ -387,7 +444,11 @@ pip install --force-reinstall -r requirements.txt
 ### Issue: Browser shows "Unable to connect"
 
 **Solutions:**
+<<<<<<< HEAD
 1. Check if app.py is running (should see Flask output)
+=======
+1. Check if network_mapper_main.py is running (should see Flask output)
+>>>>>>> 5153688 (Updated it to work properly with Subnets and VLANs. Duplicated MAC addresses with 2 different devices, are automatically identified as a single device with multiple subnets)
 2. Try http://127.0.0.1:5000 instead of localhost
 3. Check firewall isn't blocking port 5000
 4. Verify no proxy settings interfering
@@ -415,13 +476,21 @@ pip install --force-reinstall -r requirements.txt
 **Linux:**
 ```bash
 cd network-topology-mapper
+<<<<<<< HEAD
 ./start.sh
+=======
+./start_scripts.sh
+>>>>>>> 5153688 (Updated it to work properly with Subnets and VLANs. Duplicated MAC addresses with 2 different devices, are automatically identified as a single device with multiple subnets)
 ```
 
 **Windows:**
 ```batch
 cd C:\network-topology-mapper
+<<<<<<< HEAD
 start.bat
+=======
+start_app.bat
+>>>>>>> 5153688 (Updated it to work properly with Subnets and VLANs. Duplicated MAC addresses with 2 different devices, are automatically identified as a single device with multiple subnets)
 ```
 
 ### Updating Dependencies

@@ -9,6 +9,7 @@ import sys
 import subprocess
 import tempfile
 import json
+import ipaddress
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from datetime import datetime
@@ -21,8 +22,19 @@ import queue
 app = Flask(__name__)
 CORS(app)
 
-UPLOAD_FOLDER = Path(tempfile.gettempdir()) / "network_mapper_uploads"
-UPLOAD_FOLDER.mkdir(exist_ok=True)
+# Nmap needs root for some scan types (-sS, -O), so this app sometimes runs
+# elevated and sometimes doesn't (see startup.py). A plain shared path like
+# tempfile.gettempdir()/"network_mapper_uploads" gets created root:root the
+# first time it runs elevated, and every later non-root run then fails to
+# write into it with [Errno 13]. Namespacing by uid keeps root and normal
+# runs in separate folders so they never collide.
+try:
+    _owner_id = os.getuid()
+except AttributeError:
+    # Windows: no getuid, and %TEMP% is already per-user, so no collision risk
+    _owner_id = "user"
+UPLOAD_FOLDER = Path(tempfile.gettempdir()) / f"network_mapper_uploads_{_owner_id}"
+UPLOAD_FOLDER.mkdir(exist_ok=True, mode=0o700)
 app.config['UPLOAD_FOLDER'] = str(UPLOAD_FOLDER)
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024
 
@@ -74,7 +86,9 @@ def run_nmap(targets, options, scan_id, show_terminal=True, show_webpage=False):
         )
 
         if show_webpage and scan_id:
-            output_queues[scan_id] = queue.Queue()
+            # start_scan creates this before the browser can connect; never
+            # replace a queue the stream may already be reading from.
+            output_queues.setdefault(scan_id, queue.Queue())
 
         stdout_lines = []
         stderr_lines = []
@@ -102,9 +116,10 @@ def run_nmap(targets, options, scan_id, show_terminal=True, show_webpage=False):
         process.stderr.close()
         return_code = process.wait()
 
-        if show_webpage and scan_id and scan_id in output_queues:
-            output_queues[scan_id].put("__END__")
-
+        # No end-of-stream marker here: the caller still has to parse the XML
+        # and queue __RESULT__ / __ERROR__, and the stream stops at whichever
+        # of those it sees. An early marker made the stream end before the
+        # graph was ever sent.
         if return_code != 0:
             error_msg = ''.join(stderr_lines) if stderr_lines else "Unknown error"
             raise RuntimeError(f"Nmap scan failed: {error_msg}")
@@ -114,7 +129,6 @@ def run_nmap(targets, options, scan_id, show_terminal=True, show_webpage=False):
     except Exception as e:
         if show_webpage and scan_id and scan_id in output_queues:
             output_queues[scan_id].put(f"ERROR: {str(e)}")
-            output_queues[scan_id].put("__END__")
         raise RuntimeError(f"Failed to run nmap: {str(e)}")
 
 
@@ -235,82 +249,244 @@ def parse_nmap_xml(xml_file):
     return G, scan_info
 
 # -------------------------------
-# Role detection (unchanged)
+# Subnet / VLAN aware role detection
 # -------------------------------
-def identify_network_roles(G):
+# Nmap has no visibility into 802.1Q VLAN tags (that's a layer-2 property only
+# visible from a switch trunk port), so we can't recover real VLAN IDs. What we
+# *can* recover reliably from an XML scan is which hosts share an IP subnet -
+# in practice that lines up with VLAN boundaries almost always, since each
+# VLAN is normally given its own subnet. So "VLAN" here == "detected subnet".
+GATEWAY_HOSTNAME_HINTS = ("gateway", "router", "firewall", "-gw", "gw.", "fw.", "edge")
+GATEWAY_VENDOR_HINTS = ("cisco", "mikrotik", "ubiquiti", "juniper", "fortinet",
+                         "netgear", "tp-link", "huawei", "aruba", "paloalto",
+                         "sonicwall", "draytek", "asus")
+GATEWAY_PRODUCT_HINTS = ("pfsense", "opnsense", "routeros", "junos", "fortios",
+                          "ios", "asa", "edgeos", "sonicos")
+
+
+def _subnet_of_ip(ip, prefix_len):
+    """Best-effort subnet for one IP. IPv6 hosts get grouped on /64 since the
+    user-configurable prefix is meant for IPv4."""
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return None
+    prefix = prefix_len if addr.version == 4 else 64
+    return str(ipaddress.ip_network(f"{ip}/{prefix}", strict=False))
+
+
+def _subnet_sort_key(cidr):
+    if cidr == "unknown":
+        return (1, 0, 0)
+    net = ipaddress.ip_network(cidr)
+    return (0, int(net.network_address), net.prefixlen)
+
+
+def _gateway_score(node_data, ip, network):
+    """Heuristic confidence that a host is the router/firewall for its subnet."""
+    try:
+        if ipaddress.ip_address(ip).is_loopback:
+            return 0
+    except (ValueError, TypeError):
+        pass
+    score = 0
+    if network is not None:
+        try:
+            addr = ipaddress.ip_address(ip)
+            if addr == network.network_address + 1 or addr == network.broadcast_address - 1:
+                score += 2
+        except (ValueError, TypeError):
+            pass
+    hostname = (node_data.get("hostname") or "").lower()
+    if any(h in hostname for h in GATEWAY_HOSTNAME_HINTS):
+        score += 3
+    vendor = (node_data.get("mac_vendor") or "").lower()
+    if any(v in vendor for v in GATEWAY_VENDOR_HINTS):
+        score += 1
+    for port in node_data.get("ports", []):
+        product = (port.get("product") or "").lower()
+        if any(p in product for p in GATEWAY_PRODUCT_HINTS):
+            score += 3
+            break
+    return score
+
+
+def analyze_topology(G, subnet_prefix=24):
+    """Returns (roles, subnet_of).
+
+    roles: node_id -> list of role strings (unchanged role set, plus a
+        subnet-relative "Gateway" determination instead of the old global
+        ip.endswith('.1') guess).
+    subnet_of: node_id -> CIDR string the host was grouped into.
+    """
     roles = {}
+    subnet_of = {}
+    subnet_groups = {}
+    subnet_networks = {}
+
     for node_id, node_data in G.nodes(data=True):
         if node_data.get("type") != "host":
             continue
+        ip = node_data.get("ip") or node_id
+        cidr = _subnet_of_ip(ip, subnet_prefix) or "unknown"
+        subnet_of[node_id] = cidr
+        subnet_groups.setdefault(cidr, []).append(node_id)
+        if cidr != "unknown" and cidr not in subnet_networks:
+            subnet_networks[cidr] = ipaddress.ip_network(cidr)
+
         node_roles = []
         ports = node_data.get("ports", [])
         port_numbers = [int(p["port"]) for p in ports] if ports else []
-        services = [p.get("service","").lower() for p in ports] if ports else []
+        services = [p.get("service", "").lower() for p in ports] if ports else []
 
         if 53 in port_numbers or "domain" in services:
             node_roles.append("DNS Server")
         if 67 in port_numbers or 68 in port_numbers or "dhcp" in services:
             node_roles.append("DHCP Server")
         dc_ports = [88, 389, 636, 3268, 3269]
-        if any(p in port_numbers for p in dc_ports) or any(s in services for s in ("ldap","kerberos")):
+        if any(p in port_numbers for p in dc_ports) or any(s in services for s in ("ldap", "kerberos")):
             node_roles.append("Domain Controller")
-        if 80 in port_numbers or 443 in port_numbers or any(s in services for s in ("http","https")):
+        if 80 in port_numbers or 443 in port_numbers or any(s in services for s in ("http", "https")):
             node_roles.append("Web Server")
-        mail_ports = [25,110,143,465,587,993,995]
-        if any(p in port_numbers for p in mail_ports) or any(s in services for s in ("smtp","pop3","imap")):
+        mail_ports = [25, 110, 143, 465, 587, 993, 995]
+        if any(p in port_numbers for p in mail_ports) or any(s in services for s in ("smtp", "pop3", "imap")):
             node_roles.append("Mail Server")
-        db_ports = [1433,3306,5432,27017,1521]
-        if any(p in port_numbers for p in db_ports) or any(s in services for s in ("mysql","postgresql","mssql","mongodb","oracle")):
+        db_ports = [1433, 3306, 5432, 27017, 1521]
+        if any(p in port_numbers for p in db_ports) or any(s in services for s in ("mysql", "postgresql", "mssql", "mongodb", "oracle")):
             node_roles.append("Database Server")
-        file_ports = [139,445,2049]
-        if any(p in port_numbers for p in file_ports) or any(s in services for s in ("smb","netbios","nfs")):
+        file_ports = [139, 445, 2049]
+        if any(p in port_numbers for p in file_ports) or any(s in services for s in ("smb", "netbios", "nfs")):
             node_roles.append("File Server")
-        ip = node_data.get("ip","")
-        if ip.endswith(".1") or ip.endswith(".254"):
-            node_roles.append("Gateway")
-        if node_roles:
-            roles[node_id] = node_roles
-    return roles
+        roles[node_id] = node_roles
+
+    # Gateway detection is done per-subnet: the winning candidate(s) are
+    # whichever host(s) in THAT subnet score highest, not a single global pick.
+    for cidr, members in subnet_groups.items():
+        network = subnet_networks.get(cidr)
+        best_score = 0
+        best_nodes = []
+        for node_id in members:
+            score = _gateway_score(G.nodes[node_id], G.nodes[node_id].get("ip") or node_id, network)
+            if score > best_score:
+                best_score, best_nodes = score, [node_id]
+            elif score > 0 and score == best_score:
+                best_nodes.append(node_id)
+        if best_score > 0:
+            for node_id in best_nodes:
+                roles[node_id].append("Gateway")
+
+    return roles, subnet_of
 
 # -------------------------------
 # Graph conversion + weak highlighting
 # -------------------------------
 WEAK_SERVICES = {"ftp","telnet","http","pop3","imap","smtp","tftp","rlogin","rsh","finger"}
 
-def graph_to_json(G, scan_info, show_services=False, show_infra=False, weak_highlight=False):
-    nodes = []
-    links = []
-    roles = identify_network_roles(G)
+def _ip_sort_key(ip):
+    try:
+        addr = ipaddress.ip_address(ip)
+        return (0, addr.version, int(addr))
+    except ValueError:
+        return (1, 0, str(ip))
 
+
+def group_devices_by_mac(G, subnet_of):
+    # A MAC address identifies one network card. Hosts that answered with the
+    # same MAC are one device with several IPs (a router with a sub-interface
+    # per VLAN, a NIC with an alias address, ...), so they become one node.
+    # Hosts with no MAC stay individual - Nmap never reports one for the
+    # machine it runs on, or for anything beyond a router.
+    groups = {}
     for node_id, node_data in G.nodes(data=True):
         if node_data.get("type") != "host":
             continue
+        mac = (node_data.get("mac") or "").upper()
+        key = ("mac", mac) if mac else ("ip", node_id)
+        groups.setdefault(key, []).append(node_id)
+    devices = []
+    for ids in groups.values():
+        ids.sort(key=lambda nid: (_subnet_sort_key(subnet_of.get(nid, "unknown")), _ip_sort_key(nid)))
+        devices.append(ids)
+    return devices
 
-        node_obj = {
-            "id": str(node_id),
-            "label": node_data.get("label", str(node_id)),
+
+def graph_to_json(G, scan_info, show_services=False, show_infra=False, weak_highlight=False, subnet_prefix=24):
+    nodes = []
+    links = []
+    roles, subnet_of = analyze_topology(G, subnet_prefix)
+    devices = group_devices_by_mac(G, subnet_of)
+
+    subnet_list = sorted(
+        {subnet_of.get(nid, "unknown") for ids in devices for nid in ids},
+        key=_subnet_sort_key
+    )
+    vlan_index_of = {cidr: i for i, cidr in enumerate(subnet_list)}
+    devices_per_subnet = {cidr: 0 for cidr in subnet_list}
+
+    for ids in devices:
+        primary = ids[0]
+        members = [G.nodes[nid] for nid in ids]
+        interfaces = []
+        for nid in ids:
+            cidr = subnet_of.get(nid, "unknown")
+            interfaces.append({
+                "ip": nid,
+                "subnet": cidr,
+                "vlan_index": vlan_index_of[cidr],
+                "gateway": "Gateway" in roles.get(nid, [])
+            })
+        device_subnets = list(dict.fromkeys(i["subnet"] for i in interfaces))
+        for cidr in device_subnets:
+            devices_per_subnet[cidr] += 1
+
+        hostname = next((m.get("hostname") for m in members if m.get("hostname")), None)
+        node_roles = list(dict.fromkeys(r for nid in ids for r in roles.get(nid, [])))
+        mac = next((m.get("mac") for m in members if m.get("mac")), None)
+        vendor = next((m.get("mac_vendor") for m in members if m.get("mac_vendor")), None)
+        best_os = max(members, key=lambda m: m.get("os_accuracy") or 0)
+
+        ports = []
+        seen_ports = set()
+        for m in members:
+            for p in m.get("ports", []):
+                key = (p.get("protocol"), p.get("port"))
+                if key not in seen_ports:
+                    seen_ports.add(key)
+                    ports.append(p)
+
+        label = hostname or " / ".join(ids)
+        if "Gateway" in node_roles:
+            label = f"{label} (Gateway)"
+
+        nodes.append({
+            "id": str(primary),
+            "label": label,
             "type": "host",
-            "ip": node_data.get("ip"),
-            "hostname": node_data.get("hostname"),
-            "os": node_data.get("os"),
-            "os_accuracy": node_data.get("os_accuracy", 0),
-            "mac": node_data.get("mac"),
-            "mac_vendor": node_data.get("mac_vendor"),
-            "ports": node_data.get("ports", []),
-            "open_ports_count": len(node_data.get("ports", [])),
-            "roles": roles.get(node_id, [])
-        }
-        nodes.append(node_obj)
+            "ip": primary,
+            "ips": ids,
+            "interfaces": interfaces,
+            "hostname": hostname,
+            "os": best_os.get("os"),
+            "os_accuracy": best_os.get("os_accuracy", 0),
+            "mac": mac,
+            "mac_vendor": vendor,
+            "ports": ports,
+            "open_ports_count": len(ports),
+            "roles": node_roles,
+            "subnet": interfaces[0]["subnet"],
+            "vlan_index": interfaces[0]["vlan_index"],
+            "vlan_indices": [vlan_index_of[c] for c in device_subnets]
+        })
 
         # Add service nodes if requested
         if show_services:
-            for port in node_data.get("ports", []):
+            for port in ports:
                 service_name = (port.get("service") or "").lower()
                 service_label = f"{port['service']}:{port['port']}/{port['protocol']}"
                 if port.get('product'):
                     service_label = f"{port['product']} ({port['service']}:{port['port']})"
 
-                service_id = f"{node_id}_{port['protocol']}_{port['port']}"
+                service_id = f"{primary}_{port['protocol']}_{port['port']}"
                 service_node = {
                     "id": service_id,
                     "label": service_label,
@@ -327,39 +503,47 @@ def graph_to_json(G, scan_info, show_services=False, show_infra=False, weak_high
                     service_node["risk"] = "weak"
                 nodes.append(service_node)
                 links.append({
-                    "source": str(node_id),
+                    "source": str(primary),
                     "target": service_id,
                     "relation": "provides"
                 })
 
-    # Add infrastructure connections if requested
-    if show_infra:
-        # Choose gateway candidate(s)
-        gateway_candidates = [nid for nid, nroles in roles.items() if "Gateway" in nroles or "DHCP Server" in nroles]
-        if gateway_candidates:
-            gateway = gateway_candidates[0]
-            for node_id, node_data in G.nodes(data=True):
-                if node_data.get("type") == "host" and node_id != gateway:
-                    links.append({
-                        "source": gateway,
-                        "target": str(node_id),
-                        "relation": "gateway"
-                    })
+        # One line from the device to each VLAN/subnet it has an interface in.
+        # Lines only ever run device -> its own subnet's hub, so isolated
+        # VLANs can never end up wired together; a device with the same MAC on
+        # two VLANs (e.g. a router) gets one line into each.
+        if show_infra:
+            for cidr in device_subnets:
+                if cidr == "unknown":
+                    continue
+                is_gateway_here = any(i["gateway"] for i in interfaces if i["subnet"] == cidr)
+                links.append({
+                    "source": str(primary),
+                    "target": f"subnet:{cidr}",
+                    "relation": "gateway" if is_gateway_here else "member"
+                })
 
-        dns_servers = [nid for nid, nroles in roles.items() if "DNS Server" in nroles]
-        for dns in dns_servers:
-            for node_id, node_data in G.nodes(data=True):
-                if node_data.get("type") == "host" and node_id != dns:
-                    links.append({
-                        "source": str(node_id),
-                        "target": dns,
-                        "relation": "dns"
-                    })
+    if show_infra:
+        for cidr in subnet_list:
+            if cidr == "unknown":
+                continue
+            nodes.append({
+                "id": f"subnet:{cidr}",
+                "label": cidr,
+                "type": "subnet",
+                "subnet": cidr,
+                "vlan_index": vlan_index_of[cidr],
+                "host_count": devices_per_subnet[cidr]
+            })
 
     return {
         "nodes": nodes,
         "links": links,
-        "scan_info": scan_info
+        "scan_info": scan_info,
+        "subnets": [
+            {"cidr": cidr, "vlan_index": vlan_index_of[cidr], "host_count": devices_per_subnet[cidr]}
+            for cidr in subnet_list
+        ]
     }
 
 # -------------------------------
@@ -380,10 +564,6 @@ def check_nmap():
     return jsonify({"installed": check_nmap_installed()})
 
 @app.route("/api/scan", methods=["POST"])
-# -------------------------------
-# start_scan (UPDATED)
-# -------------------------------
-@app.route("/api/scan", methods=["POST"])
 def start_scan():
     global current_graph, current_scan_info
     try:
@@ -398,6 +578,8 @@ def start_scan():
         hostname_detection = data.get("hostname_detection", False)
         common_services = data.get("common_services", False)
         weak_highlight = data.get("weak_highlight", False)
+        show_infra = data.get("show_infra", False)
+        subnet_prefix = int(data.get("subnet_prefix", 24) or 24)
 
         # Build target list
         target_list = [t.strip() for t in targets_raw.split(",") if t.strip()]
@@ -527,11 +709,13 @@ def start_scan():
 
         # Run scan - streaming vs synchronous
         if show_webpage:
+            output_queues[scan_id] = queue.Queue()
+
             def thread_scan():
                 try:
                     xml_file, output = run_nmap(target_list, options, scan_id, show_terminal, show_webpage)
                     G, scan_info = parse_nmap_xml(xml_file)
-                    graph = graph_to_json(G, scan_info, show_services=False, show_infra=False, weak_highlight=weak_highlight)
+                    graph = graph_to_json(G, scan_info, show_services=False, show_infra=show_infra, weak_highlight=weak_highlight, subnet_prefix=subnet_prefix)
 
                     # store results globally
                     nonlocal_vars = globals()
@@ -553,7 +737,7 @@ def start_scan():
         else:
             xml_file, output = run_nmap(target_list, options, None, show_terminal, False)
             G, scan_info = parse_nmap_xml(xml_file)
-            graph = graph_to_json(G, scan_info, show_services=False, show_infra=False, weak_highlight=weak_highlight)
+            graph = graph_to_json(G, scan_info, show_services=False, show_infra=show_infra, weak_highlight=weak_highlight, subnet_prefix=subnet_prefix)
 
             current_graph = G
             current_scan_info = scan_info
@@ -570,11 +754,12 @@ def graph_data():
     show_infra = request.args.get('show_infra', '0') == '1'
     show_services = request.args.get('show_services', '0') == '1'
     weak_highlight = request.args.get('weak_highlight', '0') == '1'
+    subnet_prefix = int(request.args.get('subnet_prefix', 24) or 24)
 
     if current_graph is None:
         return jsonify({"nodes": [], "links": [], "scan_info": {}})
 
-    graph = graph_to_json(current_graph, current_scan_info, show_services=show_services, show_infra=show_infra, weak_highlight=weak_highlight)
+    graph = graph_to_json(current_graph, current_scan_info, show_services=show_services, show_infra=show_infra, weak_highlight=weak_highlight, subnet_prefix=subnet_prefix)
     return jsonify(graph)
 
 @app.route("/api/scan-stream/<scan_id>")
@@ -590,17 +775,9 @@ def scan_stream(scan_id):
                 if line == "__END__":
                     break
                 elif line.startswith("__RESULT__"):
-                    result_data = json.loads(line[10:])
-                    # store graph globally
-                    global current_graph, current_scan_info
-                    if result_data.get('success') and result_data.get('graph'):
-                        # rebuild current_graph for toggles: add host nodes with ports
-                        G = nx.Graph()
-                        for node in result_data['graph']['nodes']:
-                            # store original node data as attributes (simple)
-                            G.add_node(node['id'], **node)
-                        current_graph = G
-                        current_scan_info = result_data['graph']['scan_info']
+                    # thread_scan already stored the parsed graph in the
+                    # globals; rebuilding it here from the already-processed
+                    # (merged, relabelled) JSON would lose information.
                     yield f"data: {line[10:]}\n\n"
                     break
                 elif line.startswith("__ERROR__"):
@@ -629,10 +806,12 @@ def upload_file():
         filename = f"upload_{timestamp}_{file.filename}"
         filepath = UPLOAD_FOLDER / filename
         file.save(str(filepath))
+        subnet_prefix = int(request.args.get('subnet_prefix', 24) or 24)
+        show_infra = request.args.get('show_infra', '0') == '1'
         G, scan_info = parse_nmap_xml(str(filepath))
         current_graph = G
         current_scan_info = scan_info
-        graph = graph_to_json(G, scan_info, show_services=False, show_infra=False, weak_highlight=False)
+        graph = graph_to_json(G, scan_info, show_services=False, show_infra=show_infra, weak_highlight=False, subnet_prefix=subnet_prefix)
         return jsonify({"success": True, "graph": graph, "xml_file": filename})
     except Exception as e:
         return jsonify({"error": str(e)}), 500

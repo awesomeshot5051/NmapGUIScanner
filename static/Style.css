@@ -4,8 +4,12 @@
     box-sizing: border-box;
 }
 
+:root {
+    --app-font: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
 body {
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    font-family: var(--app-font);
     background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
     color: #e0e0e0;
     overflow-x: hidden;
@@ -261,11 +265,66 @@ button:disabled {
     stroke-width: 2px;
 }
 
+.link.member {
+    stroke: rgba(255, 255, 255, 0.4);
+    stroke-width: 1.5px;
+}
+
+.link.gateway {
+    stroke: #ffd700;
+    stroke-opacity: 0.85;
+    stroke-width: 2.5px;
+}
+
+.node.subnet-node {
+    stroke: #fff;
+    stroke-width: 2px;
+    stroke-dasharray: 4, 3;
+}
+
+.hub-caption {
+    font-size: 11px;
+    font-weight: 700;
+    fill: #fff;
+    letter-spacing: 0.05em;
+    pointer-events: none;
+}
+
+.gateway-ring {
+    fill: none;
+    stroke: #ffd700;
+    stroke-width: 2px;
+    pointer-events: none;
+}
+
+.legend-color.legend-ring {
+    background: transparent;
+    border: 2px solid #ffd700;
+}
+
+.legend-vlan-item .legend-color {
+    border-radius: 4px;
+}
+
+/* SVG text is pinned to the page font explicitly so the map can never fall
+   back to the browser's default font, whatever it inherits. */
+#graph svg,
+#graph svg text {
+    font-family: var(--app-font);
+}
+
+/* --label-scale is set on the map's root <g> by Script.js as the user zooms,
+   so labels stay readable zoomed out without getting huge zoomed in. */
 .node-label {
-    font-size: 12px;
+    font-size: calc(13px * var(--label-scale, 1));
     fill: #e0e0e0;
     pointer-events: none;
     text-anchor: middle;
+    /* dark outline keeps labels readable where lines pass behind them */
+    paint-order: stroke;
+    stroke: rgba(15, 20, 40, 0.9);
+    stroke-width: calc(3px * var(--label-scale, 1));
+    stroke-linejoin: round;
 }
 
 .tooltip {
@@ -386,6 +445,21 @@ button:disabled {
 
 .control-btn:hover {
     background: rgba(102, 126, 234, 0.5);
+}
+
+.control-select {
+    width: auto;
+    padding: 8px 10px;
+    background: rgba(102, 126, 234, 0.3);
+    border: 1px solid rgba(102, 126, 234, 0.5);
+    border-radius: 6px;
+    color: #e0e0e0;
+    cursor: pointer;
+}
+
+.control-select option {
+    background: #1a1a2e;
+    color: #e0e0e0;
 }
 
 .output-console {

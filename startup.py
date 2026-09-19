@@ -36,7 +36,14 @@ if not os.path.isdir("venv"):
         subprocess.call(["windows_setup.bat"], shell=True)
     else:
         subprocess.call(["bash", "linux_setup.sh"])
-    sys.exit(0)
+
+    if not os.path.isdir("venv"):
+        print("Error: setup did not complete (venv still missing)")
+        sys.exit(1)
+
+    # The setup script offers to launch the app itself; if the user accepted
+    # that prompt it's already running and Ctrl+C exits this too. If they
+    # declined, fall through and start it here instead of silently quitting.
 
 if not os.path.isfile("network_mapper_main.py"):
     print("Error: network_mapper_main.py not found")

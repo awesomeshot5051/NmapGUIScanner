@@ -77,10 +77,17 @@ git clone <repository-url>
 cd network-topology-mapper
 
 # 2. Make setup script executable
+<<<<<<< HEAD
 chmod +x setup.sh
 
 # 3. Run setup (installs dependencies and starts app)
 ./setup.sh
+=======
+chmod +x linux_setup.sh
+
+# 3. Run setup (installs dependencies and starts app)
+./linux_setup.sh
+>>>>>>> 5153688 (Updated it to work properly with Subnets and VLANs. Duplicated MAC addresses with 2 different devices, are automatically identified as a single device with multiple subnets)
 ```
 
 #### Windows
@@ -90,7 +97,11 @@ git clone <repository-url>
 cd network-topology-mapper
 
 REM 2. Run setup (installs dependencies and starts app)
+<<<<<<< HEAD
 setup.bat
+=======
+windows_setup.bat
+>>>>>>> 5153688 (Updated it to work properly with Subnets and VLANs. Duplicated MAC addresses with 2 different devices, are automatically identified as a single device with multiple subnets)
 ```
 
 ### Manual Installation
@@ -109,17 +120,28 @@ venv\Scripts\activate.bat
 pip install -r requirements.txt
 
 # Start application
+<<<<<<< HEAD
 python app.py
+=======
+python network_mapper_main.py
+>>>>>>> 5153688 (Updated it to work properly with Subnets and VLANs. Duplicated MAC addresses with 2 different devices, are automatically identified as a single device with multiple subnets)
 ```
 
 ## Project Structure
 
 ```
 network-topology-mapper/
+<<<<<<< HEAD
 ├── app.py                 # Main Flask application
 ├── requirements.txt       # Python dependencies
 ├── setup.sh              # Linux setup script
 ├── setup.bat             # Windows setup script
+=======
+├── network_mapper_main.py                 # Main Flask application
+├── requirements.txt       # Python dependencies
+├── linux_setup.sh              # Linux setup script
+├── windows_setup.bat             # Windows setup script
+>>>>>>> 5153688 (Updated it to work properly with Subnets and VLANs. Duplicated MAC addresses with 2 different devices, are automatically identified as a single device with multiple subnets)
 ├── README.md             # This file
 └── templates/
     └── index.html        # Web interface
@@ -131,17 +153,29 @@ network-topology-mapper/
 
 **Linux:**
 ```bash
+<<<<<<< HEAD
 ./setup.sh
+=======
+./linux_setup.sh
+>>>>>>> 5153688 (Updated it to work properly with Subnets and VLANs. Duplicated MAC addresses with 2 different devices, are automatically identified as a single device with multiple subnets)
 ```
 
 **Windows:**
 ```batch
+<<<<<<< HEAD
 setup.bat
+=======
+windows_setup.bat
+>>>>>>> 5153688 (Updated it to work properly with Subnets and VLANs. Duplicated MAC addresses with 2 different devices, are automatically identified as a single device with multiple subnets)
 ```
 
 **Or manually:**
 ```bash
+<<<<<<< HEAD
 python app.py
+=======
+python network_mapper_main.py
+>>>>>>> 5153688 (Updated it to work properly with Subnets and VLANs. Duplicated MAC addresses with 2 different devices, are automatically identified as a single device with multiple subnets)
 ```
 
 ### 2. Access the Web Interface
@@ -204,7 +238,11 @@ nmap -oX output.xml -p 22,80,443,8080 --script default,discovery 192.168.1.1
 
 ### Change Server Port
 
+<<<<<<< HEAD
 Edit `app.py`:
+=======
+Edit `network_mapper_main.py`:
+>>>>>>> 5153688 (Updated it to work properly with Subnets and VLANs. Duplicated MAC addresses with 2 different devices, are automatically identified as a single device with multiple subnets)
 ```python
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=8080)  # Change port here
@@ -222,7 +260,11 @@ Edit `templates/index.html`:
 
 ### File Upload Limits
 
+<<<<<<< HEAD
 Edit `app.py`:
+=======
+Edit `network_mapper_main.py`:
+>>>>>>> 5153688 (Updated it to work properly with Subnets and VLANs. Duplicated MAC addresses with 2 different devices, are automatically identified as a single device with multiple subnets)
 ```python
 app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100MB max file size
 ```
@@ -235,15 +277,25 @@ Some Nmap features require elevated privileges:
 
 **Linux:**
 ```bash
+<<<<<<< HEAD
 sudo ./setup.sh
 # Or
 sudo python app.py
+=======
+sudo ./linux_setup.sh
+# Or
+sudo python network_mapper_main.py
+>>>>>>> 5153688 (Updated it to work properly with Subnets and VLANs. Duplicated MAC addresses with 2 different devices, are automatically identified as a single device with multiple subnets)
 ```
 
 **Windows:**
 Run Command Prompt or PowerShell as Administrator, then:
 ```batch
+<<<<<<< HEAD
 setup.bat
+=======
+windows_setup.bat
+>>>>>>> 5153688 (Updated it to work properly with Subnets and VLANs. Duplicated MAC addresses with 2 different devices, are automatically identified as a single device with multiple subnets)
 ```
 
 ### Firewall Considerations
@@ -287,7 +339,11 @@ Some Nmap scans require elevated privileges:
 
 ```bash
 # Linux
+<<<<<<< HEAD
 sudo python app.py
+=======
+sudo python network_mapper_main.py
+>>>>>>> 5153688 (Updated it to work properly with Subnets and VLANs. Duplicated MAC addresses with 2 different devices, are automatically identified as a single device with multiple subnets)
 
 # Or adjust scan options (avoid -O, use -sT instead of -sS)
 ```
@@ -303,7 +359,11 @@ sudo lsof -i :5000
 # Windows:
 netstat -ano | findstr :5000
 
+<<<<<<< HEAD
 # Change port in app.py or kill the process
+=======
+# Change port in network_mapper_main.py or kill the process
+>>>>>>> 5153688 (Updated it to work properly with Subnets and VLANs. Duplicated MAC addresses with 2 different devices, are automatically identified as a single device with multiple subnets)
 ```
 
 ### Browser Can't Connect

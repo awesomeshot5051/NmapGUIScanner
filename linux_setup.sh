@@ -103,7 +103,11 @@ $PIP_CMD install --upgrade pip >/dev/null 2>&1
 
 # Install required packages
 echo "Installing Python dependencies..."
+<<<<<<< HEAD
 $PIP_CMD install -q flask flask-cors networkx pyvis 2>&1 | grep -v "already satisfied" || true
+=======
+$PIP_CMD install -q -r requirements.txt 2>&1 | grep -v "already satisfied" || true
+>>>>>>> 5153688 (Updated it to work properly with Subnets and VLANs. Duplicated MAC addresses with 2 different devices, are automatically identified as a single device with multiple subnets)
 echo -e "${GREEN}✓ Dependencies installed${NC}"
 
 # Create templates directory if it doesn't exist
@@ -121,7 +125,11 @@ echo "Setup Complete!"
 echo "=========================================="
 echo ""
 echo "To start the application:"
+<<<<<<< HEAD
 echo "  1. Run this script: ./setup.sh"
+=======
+echo "  1. Run this script: ./linux_setup.sh"
+>>>>>>> 5153688 (Updated it to work properly with Subnets and VLANs. Duplicated MAC addresses with 2 different devices, are automatically identified as a single device with multiple subnets)
 echo "  2. Open your browser to: http://localhost:5000"
 echo ""
 
@@ -129,7 +137,11 @@ echo ""
 read -p "Start the application now? [Y/n]: " -n 1 -r
 echo
 if [[ $REPLY =~ ^[Nn]$ ]]; then
+<<<<<<< HEAD
     echo "To start later, run: ./start.sh"
+=======
+    echo "To start later, run: ./start_scripts.sh"
+>>>>>>> 5153688 (Updated it to work properly with Subnets and VLANs. Duplicated MAC addresses with 2 different devices, are automatically identified as a single device with multiple subnets)
     exit 0
 fi
 
@@ -140,6 +152,7 @@ echo "Press Ctrl+C to stop"
 echo ""
 
 # Check if main script exists
+<<<<<<< HEAD
 if [ ! -f "app.py" ]; then
     echo -e "${RED}✗ app.py not found${NC}"
     echo "Please ensure app.py is in the current directory"
@@ -147,3 +160,12 @@ if [ ! -f "app.py" ]; then
 fi
 
 $PYTHON_CMD app.py
+=======
+if [ ! -f "network_mapper_main.py" ]; then
+    echo -e "${RED}✗ network_mapper_main.py not found${NC}"
+    echo "Please ensure network_mapper_main.py is in the current directory"
+    exit 1
+fi
+
+$PYTHON_CMD network_mapper_main.py
+>>>>>>> 5153688 (Updated it to work properly with Subnets and VLANs. Duplicated MAC addresses with 2 different devices, are automatically identified as a single device with multiple subnets)

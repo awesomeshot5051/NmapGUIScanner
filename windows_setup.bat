@@ -67,11 +67,19 @@ REM Step 5: Install dependencies
 echo [5/6] Installing Python packages...
 echo This may take a minute...
 python -m pip install --upgrade pip --quiet
+<<<<<<< HEAD
 python -m pip install flask flask-cors networkx pyvis --quiet
 if ERRORLEVEL 1 (
     echo [ERROR] Failed to install packages
     echo Trying again with verbose output...
     python -m pip install flask flask-cors networkx pyvis
+=======
+python -m pip install -r requirements.txt --quiet
+if ERRORLEVEL 1 (
+    echo [ERROR] Failed to install packages
+    echo Trying again with verbose output...
+    python -m pip install -r requirements.txt
+>>>>>>> 5153688 (Updated it to work properly with Subnets and VLANs. Duplicated MAC addresses with 2 different devices, are automatically identified as a single device with multiple subnets)
     pause
     exit /b 1
 )
@@ -127,7 +135,11 @@ echo Setup Complete!
 echo ============================================
 echo.
 echo Your environment is ready. To start the app:
+<<<<<<< HEAD
 echo   1. Run: START_APP.bat
+=======
+echo   1. Run: start_app.bat
+>>>>>>> 5153688 (Updated it to work properly with Subnets and VLANs. Duplicated MAC addresses with 2 different devices, are automatically identified as a single device with multiple subnets)
 echo   2. Or manually run: python %MAINFILE%
 echo   3. Then open: http://localhost:5000
 echo.
@@ -143,6 +155,10 @@ if /i "%STARTNOW%"=="Y" (
     python %MAINFILE%
 ) else (
     echo.
+<<<<<<< HEAD
     echo Run START_APP.bat when you're ready
+=======
+    echo Run start_app.bat when you're ready
+>>>>>>> 5153688 (Updated it to work properly with Subnets and VLANs. Duplicated MAC addresses with 2 different devices, are automatically identified as a single device with multiple subnets)
     pause
 )

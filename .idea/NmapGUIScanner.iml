@@ -7,6 +7,11 @@
     <exclude-output />
     <content url="file://$MODULE_DIR$">
       <sourceFolder url="file://$MODULE_DIR$/static" type="java-resource" />
+<<<<<<< HEAD
+=======
+      <sourceFolder url="file://$MODULE_DIR$/venv/lib64/python3.14/site-packages" isTestSource="false" />
+      <excludeFolder url="file://$MODULE_DIR$/.venv" />
+>>>>>>> 5153688 (Updated it to work properly with Subnets and VLANs. Duplicated MAC addresses with 2 different devices, are automatically identified as a single device with multiple subnets)
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />
