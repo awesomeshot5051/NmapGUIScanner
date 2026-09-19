@@ -87,17 +87,11 @@
                 <div class="form-group">
                     <label>Display Options</label>
                     <div class="checkbox-group">
-<<<<<<< HEAD
-                        <input type="checkbox" id="toggleInfra">
-                        <label for="toggleInfra">Show Network Connections</label>
-                    </div>
-=======
                         <input type="checkbox" id="toggleInfra" checked>
                         <label for="toggleInfra">Show Network Connections</label>
                     </div>
                     <label for="subnet_prefix">Subnet / VLAN grouping (prefix length)</label>
                     <input type="number" id="subnet_prefix" value="24" min="8" max="30">
->>>>>>> 5153688 (Updated it to work properly with Subnets and VLANs. Duplicated MAC addresses with 2 different devices, are automatically identified as a single device with multiple subnets)
                 </div>
 
                 <div class="form-group">
@@ -149,13 +143,6 @@
 
             <div class="legend">
                 <div class="legend-item">
-<<<<<<< HEAD
-                    <div class="legend-color" style="background: #667eea;"></div>
-                    <span>Host</span>
-                </div>
-                <div class="legend-item">
-=======
->>>>>>> 5153688 (Updated it to work properly with Subnets and VLANs. Duplicated MAC addresses with 2 different devices, are automatically identified as a single device with multiple subnets)
                     <div class="legend-color" style="background: #f093fb;"></div>
                     <span>Service</span>
                 </div>
@@ -163,28 +150,22 @@
                     <div class="legend-color" style="background: #e74c3c;"></div>
                     <span>Weak / Insecure Service</span>
                 </div>
-<<<<<<< HEAD
-=======
                 <div class="legend-item">
                     <div class="legend-color legend-ring"></div>
                     <span>Gateway</span>
                 </div>
                 <div id="vlan-legend"></div>
->>>>>>> 5153688 (Updated it to work properly with Subnets and VLANs. Duplicated MAC addresses with 2 different devices, are automatically identified as a single device with multiple subnets)
             </div>
 
             <div class="controls-bar">
                 <button class="control-btn" onclick="resetZoom()">Reset View</button>
                 <button class="control-btn" onclick="exportData()">Export JSON</button>
-<<<<<<< HEAD
-=======
                 <select id="export-format" class="control-select" aria-label="Image format">
                     <option value="png">PNG</option>
                     <option value="jpg">JPG</option>
                     <option value="svg">SVG</option>
                 </select>
                 <button class="control-btn" onclick="exportImage()">Export Image</button>
->>>>>>> 5153688 (Updated it to work properly with Subnets and VLANs. Duplicated MAC addresses with 2 different devices, are automatically identified as a single device with multiple subnets)
             </div>
 
             <div id="output-console" class="output-console">

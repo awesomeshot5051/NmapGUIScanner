@@ -3,11 +3,7 @@
   <component name="Black">
     <option name="sdkName" value="Python 3.13 (.venv)" />
   </component>
-<<<<<<< HEAD
-  <component name="ProjectRootManager" version="2" languageLevel="JDK_25" default="true" project-jdk-name="Python 3.13 (Project 1)" project-jdk-type="Python SDK">
-=======
   <component name="ProjectRootManager" version="2" languageLevel="JDK_25" default="true" project-jdk-name="~/Downloads/NmapGUIScanner-master/.venv" project-jdk-type="Python SDK">
->>>>>>> 5153688 (Updated it to work properly with Subnets and VLANs. Duplicated MAC addresses with 2 different devices, are automatically identified as a single device with multiple subnets)
     <output url="file://$PROJECT_DIR$/out" />
   </component>
 </project>
