@@ -4,51 +4,45 @@ A cross-platform network visualization tool that integrates with Nmap to create 
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Windows-lightgrey.svg)
-![Python](https://img.shields.io/badge/python-3.7+-blue.svg)
+![Python](https://img.shields.io/badge/python-3.11+-blue.svg)
 
 ## Features
 
-### 🎯 Core Functionality
-- **Live Nmap Scanning**: Run customized Nmap scans directly from the UI
-- **XML Import**: Upload existing Nmap XML scan results
-- **Interactive Visualization**: D3.js-powered network topology with zoom, drag, and pan
-- **Cross-Platform**: Works on Linux and Windows without modification
+This is the short version. [What Exactly does this do?](wedid.md) goes through each feature in more detail and explains how the tool differs from Zenmap.
 
-### 🔧 Nmap Integration
-- **Port Selection**:
-  - Top N ports (configurable)
-  - All ports (1-65535)
-  - Custom port lists
-- **Service Detection**: Version detection (`-sV`)
-- **OS Detection**: Operating system fingerprinting (`-O`)
-- **Script Scanning**: NSE (Nmap Scripting Engine) support
-- **SNMP Discovery**: UDP scanning for SNMP services
-- **Timing Templates**: Paranoid to Insane (T0-T5)
+### Scanning
+- **Live Nmap scans** from the browser. Targets can be single IPs, CIDR ranges or hostnames, separated by commas
+- **Port selection**: top N ports (configurable), all ports (1-65535), or a custom list
+- **Scan options**: service version detection (`-sV`), OS detection (`-O`), NSE script scanning, SNMP discovery, hostname detection, common TCP and UDP service ports
+- **Timing templates**: Paranoid to Insane (T0-T5)
+- **Live output**: watch Nmap's output in the terminal, on the page as it runs, or both
+- **XML import**: load an existing Nmap XML scan instead of running a new one
 
-### 🎨 Visualization Features
-- **Node Types**:
-  - **Hosts** (Blue circles): Network devices with IP, hostname, OS info
-  - **Services** (Pink boxes): Open ports with service/version details
-- **Interactive Elements**:
-  - Click nodes for detailed information
-  - Hover for quick tooltips
-  - Drag to reposition nodes
-  - Zoom and pan controls
-- **Data Export**: Save topology as JSON
+### The map
+- **Subnet grouping**: devices are clustered and colour-coded by subnet, each with its own hub and a legend showing device counts. The prefix length used for grouping is adjustable (default /24). Nmap can't see VLAN tags, so "VLAN" here means "subnet"
+- **Multi-homed devices**: hosts that answer with the same MAC address on different subnets are merged into one device with several interfaces
+- **Gateway detection**: the likely gateway in each subnet is marked with a gold ring
+- **Role tagging**: DNS, DHCP, domain controller, web, mail, database and file servers are identified from open ports and services
+- **Services**: click a device to show its open ports around it, click again to hide them
+- **Tooltips**: hover a device for its addresses, subnet, hostname, OS guess, MAC and vendor, roles and open port count
+- **Navigation**: drag devices, scroll to zoom, drag the background to pan, "Reset View" to fit everything
 
-### 🖥️ User Interface
-- Modern, dark-themed web interface
-- Real-time scan progress
-- Detailed node inspection panel
-- Scan metadata display
-- Responsive design
+### Export
+- **JSON**: the topology data behind the map
+- **Image**: the whole map as PNG, JPG or SVG, with a legend
+
+### Interface
+- Dark-themed web interface that runs locally in your browser
+- Scan summary panel (scan time, Nmap version, hosts scanned and hosts up)
+- Works on Linux and Windows
 
 ## Installation
 
 ### Prerequisites
 
 #### Required
-- **Python 3.7+**: [Download](https://www.python.org/downloads/)
+- **Python 3.11+**: [Download](https://www.python.org/downloads/)
+  (older distributions may ship an older Python; Ubuntu 22.04 has 3.10, so install a newer one alongside it, for example with [pyenv](https://github.com/pyenv/pyenv))
 - **Nmap**: [Download](https://nmap.org/download.html)
 
 #### Linux
@@ -65,7 +59,7 @@ sudo pacman -S python python-pip nmap
 ```
 
 #### Windows
-1. Install [Python 3.7+](https://www.python.org/downloads/) (check "Add Python to PATH")
+1. Install [Python 3.11+](https://www.python.org/downloads/) (check "Add Python to PATH")
 2. Install [Nmap](https://nmap.org/download.html)
 
 ### Quick Start
@@ -116,13 +110,21 @@ python network_mapper_main.py
 
 ```
 network-topology-mapper/
-├── network_mapper_main.py                 # Main Flask application
-├── requirements.txt       # Python dependencies
-├── linux_setup.sh              # Linux setup script
-├── windows_setup.bat             # Windows setup script
-├── README.md             # This file
-└── templates/
-    └── index.html        # Web interface
+├── network_mapper_main.py  # Flask app: runs Nmap, parses XML, builds the map data
+├── startup.py              # Launcher that re-runs itself with admin rights
+├── requirements.txt        # Python dependencies
+├── linux_setup.sh          # Linux setup script
+├── windows_setup.bat       # Windows setup script
+├── start_scripts.sh        # Linux quick-start (after setup)
+├── start_app.bat           # Windows quick-start (after setup)
+├── README.md               # This file
+├── wedid.md                # Detailed feature walkthrough and Zenmap comparison
+├── install_guide.md        # Longer installation guide
+├── templates/
+│   └── index.html          # Web interface
+└── static/
+    ├── Script.js           # Map drawing and scan controls (D3.js)
+    └── Style.css           # Styling
 ```
 
 ## Usage
@@ -138,6 +140,18 @@ network-topology-mapper/
 ```batch
 windows_setup.bat
 ```
+
+**Later runs, once setup has been done:**
+```bash
+./start_scripts.sh      # Linux
+start_app.bat           # Windows
+```
+
+**With admin rights (needed for OS detection and SYN scans):**
+```bash
+python startup.py
+```
+This relaunches itself with `sudo` on Linux or a UAC prompt on Windows, then starts the app.
 
 **Or manually:**
 ```bash
@@ -160,45 +174,56 @@ Open your browser to: **http://localhost:5000**
    - **All Ports**: Comprehensive scan (1-65535)
    - **Custom**: Specific ports (e.g., `22,80,443,8080`)
 3. Enable additional options:
-   - ☑ **Service Version Detection**: Identify service versions
-   - ☑ **OS Detection**: Detect operating systems (requires root/admin)
-   - ☑ **Script Scanning**: Run NSE discovery scripts
-   - ☑ **SNMP Discovery**: Scan for SNMP services
-4. Select timing template (T3 = Normal recommended)
-5. Click **Start Scan**
+   - **Service Version Detection**: Identify service versions
+   - **OS Detection**: Detect operating systems (requires root/admin)
+   - **Script Scanning**: Run NSE discovery scripts
+   - **SNMP Discovery**: Scan for SNMP services
+   - **Attempt Hostname Detection**: Reverse DNS, NetBIOS and DNS service discovery
+   - **Detect Common TCP & UDP Services**: Adds UDP scanning and a set of common ports (slower)
+4. Choose display options:
+   - **Show Network Connections**: Draw a hub for each subnet and a line from each device to it
+   - **Subnet / VLAN grouping**: Prefix length used to group devices (default 24)
+5. Choose where Nmap's output goes: the logs (terminal), the webpage, or both
+6. Select timing template (T3 = Normal recommended)
+7. Click **Start Scan**
 
 #### Option B: Upload Existing Scan
 1. Click **Choose Nmap XML File**
 2. Select an Nmap XML output file
-3. Topology will load automatically
+3. Topology will load automatically, using the subnet grouping and connection settings currently shown in the sidebar
 
 ### 4. Interact with the Visualization
 
-- **Click nodes**: View detailed information
-- **Hover nodes**: Quick tooltip
-- **Drag nodes**: Reposition manually
+- **Click a device**: Show or hide its open ports
+- **Hover a device**: Tooltip with addresses, subnet, hostname, OS, MAC, roles and open port count
+- **Drag devices**: Reposition manually
 - **Scroll**: Zoom in/out
 - **Drag background**: Pan view
-- **Reset View**: Return to default zoom
+- **Reset View**: Fit the whole map in the window
 - **Export JSON**: Save topology data
+- **Export Image**: Save the whole map as PNG, JPG or SVG (pick the format in the dropdown)
+
+Gold rings mark the likely gateway in each subnet. Each colour in the legend is one detected subnet. See [wedid.md](wedid.md) for how grouping, gateway detection and multi-interface devices work.
 
 ## Nmap Command Examples
 
-The tool generates Nmap commands similar to:
+The tool generates Nmap commands similar to these (the timing flag is always added):
 
 ```bash
 # Quick scan of top 100 ports
-nmap -oX output.xml --top-ports 100 192.168.1.0/24
+nmap -oX output.xml --top-ports 100 -T3 192.168.1.0/24
 
 # Full port scan with service detection
-nmap -oX output.xml -p- -sV 192.168.1.0/24
+nmap -oX output.xml -p- -sV -T3 192.168.1.0/24
 
 # Aggressive scan with OS detection
-nmap -oX output.xml -sV -O -T4 192.168.1.0/24
+nmap -oX output.xml --top-ports 100 -sV -O -T4 192.168.1.0/24
 
 # Custom ports with scripts
-nmap -oX output.xml -p 22,80,443,8080 --script default,discovery 192.168.1.1
+nmap -oX output.xml -p 22,80,443,8080 -T3 --script default,discovery 192.168.1.1
 ```
+
+The exact command is printed to the terminal as `[DEBUG] Running nmap command: ...` for every scan.
 
 ## Configuration
 
@@ -212,13 +237,17 @@ if __name__ == "__main__":
 
 ### Adjust Visualization
 
-Edit `templates/index.html`:
+Edit `static/Script.js`:
 ```javascript
-// Force simulation parameters
-.force('charge', d3.forceManyBody().strength(-300))  // Node repulsion
-.force('link', d3.forceLink().id(d => d.id).distance(100))  // Link distance
-.force('collision', d3.forceCollide().radius(50))  // Collision radius
+// Spacing between neighbouring nodes
+const NODE_COLLIDE_RADIUS = 62;
+const HUB_COLLIDE_RADIUS = 50;
+const SERVICE_COLLIDE_RADIUS = 30;
+
+// Subnet colours (cycles if there are more subnets than colours)
+const VLAN_COLORS = ['#667eea', '#2ecc71', '#f39c12', ...];
 ```
+The force simulation (repulsion, link distance) is set up in `initVisualization()` in the same file.
 
 ### File Upload Limits
 
@@ -233,14 +262,20 @@ app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100MB max file size
 
 Some Nmap features require elevated privileges:
 
-**Linux:**
+**Easiest way (Linux and Windows):**
+```bash
+python startup.py
+```
+It asks for elevation itself, using `sudo` on Linux or a UAC prompt on Windows.
+
+**Linux, manually:**
 ```bash
 sudo ./linux_setup.sh
 # Or
 sudo python network_mapper_main.py
 ```
 
-**Windows:**
+**Windows, manually:**
 Run Command Prompt or PowerShell as Administrator, then:
 ```batch
 windows_setup.bat
@@ -249,6 +284,8 @@ windows_setup.bat
 ### Firewall Considerations
 
 - The application runs on port **5000** by default
+- By default it listens on all network interfaces (`host="0.0.0.0"`), so other machines on your network can reach it. Change `host` to `"127.0.0.1"` in `network_mapper_main.py` if you only want local access
+- It also starts with Flask's `debug=True`. Turn that off if the app is reachable by anyone else, especially when running as root
 - Nmap may trigger firewall alerts during scans
 - Some scans (SYN scans, OS detection) require raw socket access
 
@@ -289,7 +326,7 @@ Some Nmap scans require elevated privileges:
 # Linux
 sudo python network_mapper_main.py
 
-# Or adjust scan options (avoid -O, use -sT instead of -sS)
+# Or run without OS Detection, which needs raw socket access
 ```
 
 ### Port Already in Use
@@ -367,7 +404,7 @@ Options: SNMP Discovery, Script Scanning
 2. **Service Identification**: Enable version detection
 3. **OS Fingerprinting**: Enable OS detection (requires root)
 4. **Deep Dive**: All ports on interesting hosts
-5. **Vulnerability Assessment**: Enable script scanning
+5. **Extra Detail**: Enable script scanning
 
 ### Automating Scans
 
@@ -402,7 +439,9 @@ Content-Type: application/json
   "top_ports_count": 100,
   "service_version": true,
   "os_detection": false,
-  "timing": "3"
+  "timing": "3",
+  "show_infra": true,
+  "subnet_prefix": 24
 }
 
 Response: {
@@ -412,9 +451,24 @@ Response: {
 }
 ```
 
+Other accepted fields: `all_ports`, `custom_ports` (e.g. `"22,80,443"`), `script_scan`, `snmp_scan`, `hostname_detection`, `common_services`, `show_terminal`, `show_webpage`. If `show_webpage` is true, the response is `{"success": true, "scan_id": "...", "streaming": true}` instead, and the results arrive over the stream endpoint below.
+
+### Stream Scan Output
+```
+GET /api/scan-stream/<scan_id>
+Response: Server-sent events: {"output": "..."} lines while Nmap runs,
+          then {"success": true, "graph": {...}} or {"error": "..."}
+```
+
+### Get Current Graph
+```
+GET /api/graph?show_infra=1&subnet_prefix=24
+Response: The graph of the most recent scan or upload, regrouped with the given settings
+```
+
 ### Upload XML
 ```
-POST /api/upload
+POST /api/upload?show_infra=1&subnet_prefix=24
 Content-Type: multipart/form-data
 
 file: <nmap_output.xml>
@@ -460,7 +514,7 @@ import requests
 
 # Get topology data
 response = requests.post('http://localhost:5000/api/scan', 
-    json={'targets': '192.168.1.0/24', 'top_ports': true})
+    json={'targets': '192.168.1.0/24', 'top_ports': True})
 data = response.json()
 
 # Export to file
@@ -536,6 +590,11 @@ For issues, questions, or feature requests:
 - Interactive D3.js visualization
 - Service and OS detection
 - Auto-setup scripts
+- Subnet/VLAN grouping with adjustable prefix length
+- Devices sharing a MAC address merged into one multi-interface device
+- Gateway and server role detection
+- Live Nmap output on the page
+- Image export (PNG, JPG, SVG)
 
 ## Future Roadmap
 

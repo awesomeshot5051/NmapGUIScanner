@@ -2,6 +2,16 @@
 REM ============================================
 REM Network Topology Mapper - Windows Setup
 REM ============================================
+REM Usage: windows_setup.bat [/nostart]
+REM   /nostart   set everything up but don't offer to start the app
+REM              (used by startup.py, which starts the app itself)
+
+REM Always work from the folder this script lives in. This matters when it is
+REM run as administrator, which starts in C:\Windows\System32 by default.
+cd /d "%~dp0"
+
+set NOSTART=0
+if /i "%~1"=="/nostart" set NOSTART=1
 
 echo.
 echo ============================================
@@ -9,13 +19,21 @@ echo Network Topology Mapper - Windows Setup
 echo ============================================
 echo.
 
-REM Step 1: Check Python
+REM Step 1: Check Python (3.11 or newer, needed by the packages in requirements.txt)
 echo [1/6] Checking Python installation...
 python --version >nul 2>&1
 if ERRORLEVEL 1 (
     echo [ERROR] Python not found in PATH
-    echo Please install Python 3.7+ from https://www.python.org/downloads/
+    echo Please install Python 3.11+ from https://www.python.org/downloads/
     echo Make sure to check "Add Python to PATH" during installation
+    pause
+    exit /b 1
+)
+
+python -c "import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)" >nul 2>&1
+if ERRORLEVEL 1 (
+    for /f "tokens=2" %%i in ('python --version 2^>^&1') do echo [ERROR] Python %%i found, but 3.11 or newer is required
+    echo Please install Python 3.11+ from https://www.python.org/downloads/
     pause
     exit /b 1
 )
@@ -56,6 +74,8 @@ REM Step 4: Activate virtual environment
 echo [4/6] Activating virtual environment...
 if not exist venv\Scripts\activate.bat (
     echo [ERROR] Virtual environment activation script not found
+    echo The venv folder may have been created on another system or interrupted.
+    echo Delete the venv folder and run this script again.
     pause
     exit /b 1
 )
@@ -65,6 +85,11 @@ echo.
 
 REM Step 5: Install dependencies
 echo [5/6] Installing Python packages...
+if not exist requirements.txt (
+    echo [ERROR] requirements.txt not found
+    pause
+    exit /b 1
+)
 echo This may take a minute...
 python -m pip install --upgrade pip --quiet
 python -m pip install -r requirements.txt --quiet
@@ -92,15 +117,10 @@ REM Check for required files
 echo Checking for required files...
 set ERRORS=0
 
-if exist app.py (
-    echo [OK] Found app.py
-    set MAINFILE=app.py
-) else if exist network_mapper_main.py (
+if exist network_mapper_main.py (
     echo [OK] Found network_mapper_main.py
-    set MAINFILE=network_mapper_main.py
 ) else (
-    echo [ERROR] Main application file not found!
-    echo Please ensure app.py or network_mapper_main.py exists
+    echo [ERROR] network_mapper_main.py not found!
     set ERRORS=1
 )
 
@@ -126,10 +146,14 @@ echo ============================================
 echo Setup Complete!
 echo ============================================
 echo.
+
+if "%NOSTART%"=="1" exit /b 0
+
 echo Your environment is ready. To start the app:
 echo   1. Run: start_app.bat
-echo   2. Or manually run: python %MAINFILE%
-echo   3. Then open: http://localhost:5000
+echo   2. Or manually run: python network_mapper_main.py
+echo   3. For admin rights, needed for OS detection and SYN scans, run: python startup.py
+echo   4. Then open: http://localhost:5000
 echo.
 
 set /p STARTNOW="Start the application now? (Y/N): "
@@ -140,7 +164,8 @@ if /i "%STARTNOW%"=="Y" (
     echo.
     echo Open your browser to: http://localhost:5000
     echo.
-    python %MAINFILE%
+    python network_mapper_main.py
+    pause
 ) else (
     echo.
     echo Run start_app.bat when you're ready

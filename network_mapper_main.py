@@ -10,6 +10,7 @@ import subprocess
 import tempfile
 import json
 import ipaddress
+import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from datetime import datetime
@@ -146,6 +147,44 @@ def shlex_quote(s):
 # -------------------------------
 # XML Parsing (unchanged)
 # -------------------------------
+class NmapXmlError(ValueError):
+    pass
+
+
+def _explain_bad_xml(xml_file, parse_error):
+    # Only runs once a file has already failed to parse. Looks for the damage
+    # patterns seen in real corrupt scans so the message says what is wrong
+    # with the file rather than just quoting the parser.
+    problems = []
+    try:
+        with open(xml_file, encoding="utf-8", errors="replace") as f:
+            text = f.read()
+
+        # a start tag that stops mid-way and runs straight into the next tag
+        cut_off = len(re.findall(r"<[A-Za-z_][\w:.-]*[^<>]*(?=<)", text))
+        if cut_off:
+            problems.append(f"{cut_off} entries are cut off partway through")
+
+        addresses = []
+        for chunk in text.split("<host ")[1:]:
+            m = re.search(r'<address addr="([^"]+)" addrtype="ipv4"', chunk)
+            if m:
+                addresses.append(m.group(1))
+        duplicates = len(addresses) - len(set(addresses))
+        if duplicates:
+            problems.append(f"{duplicates} host records repeat a host already listed earlier")
+    except OSError:
+        pass
+
+    message = f"This isn't a readable Nmap XML file ({parse_error})."
+    if problems:
+        message += " The file is damaged: " + "; ".join(problems) + "."
+    message += (" That usually means it was copied while the scan was still running, or two Nmap scans"
+                " were writing to the same output file at once. Re-run the scan (one at a time, to its"
+                " own -oX file) and upload the finished result.")
+    return message
+
+
 def parse_nmap_xml(xml_file):
     G = nx.Graph()
     scan_info = {
@@ -155,7 +194,10 @@ def parse_nmap_xml(xml_file):
         "hosts_up": 0
     }
 
-    tree = ET.parse(xml_file)
+    try:
+        tree = ET.parse(xml_file)
+    except ET.ParseError as e:
+        raise NmapXmlError(_explain_bad_xml(xml_file, e)) from e
     root = tree.getroot()
 
     scan_info["nmap_version"] = root.get("version")
@@ -813,6 +855,8 @@ def upload_file():
         current_scan_info = scan_info
         graph = graph_to_json(G, scan_info, show_services=False, show_infra=show_infra, weak_highlight=False, subnet_prefix=subnet_prefix)
         return jsonify({"success": True, "graph": graph, "xml_file": filename})
+    except NmapXmlError as e:
+        return jsonify({"error": str(e)}), 400
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

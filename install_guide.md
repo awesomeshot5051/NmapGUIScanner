@@ -19,21 +19,27 @@ After downloading/extracting, your directory should contain:
 
 ```
 network-topology-mapper/
-├── network_mapper_main.py                    # Main application (REQUIRED)
+├── network_mapper_main.py    # Main application (REQUIRED)
 ├── requirements.txt          # Python dependencies (REQUIRED)
-├── linux_setup.sh                  # Linux setup script (REQUIRED for Linux)
-├── windows_setup.bat                 # Windows setup script (REQUIRED for Windows)
-├── start_scripts.sh                  # Linux quick-start (OPTIONAL)
-├── start_app.bat                 # Windows quick-start (OPTIONAL)
-├── README.md                 # Documentation (OPTIONAL)
-├── INSTALL.md                # This file (OPTIONAL)
-└── templates/
-    └── index.html            # Web interface (REQUIRED)
+├── linux_setup.sh            # Linux setup script (REQUIRED for Linux)
+├── windows_setup.bat         # Windows setup script (REQUIRED for Windows)
+├── startup.py                # Launcher that asks for admin rights (OPTIONAL)
+├── start_scripts.sh          # Linux quick-start (OPTIONAL)
+├── start_app.bat             # Windows quick-start (OPTIONAL)
+├── README.md                 # Overview (OPTIONAL)
+├── wedid.md                  # Detailed feature walkthrough (OPTIONAL)
+├── install_guide.md          # This file (OPTIONAL)
+├── templates/
+│   └── index.html            # Web interface (REQUIRED)
+└── static/
+    ├── Script.js             # Map drawing and scan controls (REQUIRED)
+    └── Style.css             # Styling (REQUIRED)
 ```
 
 **CRITICAL FILES** (must be present):
 - `network_mapper_main.py`
 - `templates/index.html`
+- `static/Script.js` and `static/Style.css`
 - `requirements.txt`
 - `linux_setup.sh` (Linux) or `windows_setup.bat` (Windows)
 
@@ -61,10 +67,12 @@ sudo pacman -S python python-pip nmap
 
 #### Verify Installation
 ```bash
-python3 --version    # Should show Python 3.7 or higher
+python3 --version    # Should show Python 3.11 or higher
 pip3 --version       # Should show pip version
 nmap --version       # Should show Nmap version
 ```
+
+Some older distributions ship an older Python (Ubuntu 22.04 has 3.10, for example). If `python3 --version` shows something below 3.11, install a newer Python alongside it, for instance with [pyenv](https://github.com/pyenv/pyenv) or a build from [python.org](https://www.python.org/downloads/), and use that to run the setup.
 
 ### Step 2: Download and Extract
 
@@ -92,7 +100,7 @@ chmod +x start_scripts.sh  # if present
 ```
 
 **What this script does:**
-1. Checks Python and pip installation
+1. Checks that Python 3.11 or newer is installed
 2. Checks Nmap installation (warns if missing)
 3. Creates Python virtual environment
 4. Installs required packages (Flask, NetworkX, PyVis, etc.)
@@ -112,15 +120,17 @@ source venv/bin/activate
 python network_mapper_main.py
 ```
 
+For OS detection and SYN scans you need root. `python startup.py` handles that by re-running itself with `sudo`.
+
 ---
 
 ## Windows Installation
 
 ### Step 1: Install Python
 
-1. Download Python 3.7+ from [python.org](https://www.python.org/downloads/)
+1. Download Python 3.11 or newer from [python.org](https://www.python.org/downloads/)
 2. Run the installer
-3. **IMPORTANT**: Check ☑ "Add Python to PATH"
+3. **IMPORTANT**: Tick "Add Python to PATH"
 4. Click "Install Now"
 
 #### Verify Installation
@@ -171,7 +181,7 @@ windows_setup.bat
 ```
 
 **What this script does:**
-1. Checks Python and pip installation
+1. Checks that Python 3.11 or newer is installed
 2. Checks Nmap installation (warns if missing)
 3. Creates Python virtual environment
 4. Installs required packages
@@ -191,6 +201,8 @@ venv\Scripts\activate.bat
 python network_mapper_main.py
 ```
 
+For OS detection and SYN scans you need administrator rights. `python startup.py` handles that by asking for elevation (a UAC prompt).
+
 ---
 
 ## First Run
@@ -200,16 +212,15 @@ python network_mapper_main.py
 After starting the application, you'll see:
 
 ```
-==========================================
-Network Topology Mapper
-==========================================
-Starting server...
-Upload folder: /tmp/network_mapper_uploads
+============================================================
+Network Topology Mapper - server starting
+============================================================
+Upload folder: /tmp/network_mapper_uploads_1000
 Nmap installed: True
-
-Access the application at: http://localhost:5000
-==========================================
+Open http://localhost:5000
 ```
+
+The number at the end of the upload folder is your user ID, so it will differ.
 
 Open your web browser and go to: **http://localhost:5000**
 
@@ -220,8 +231,8 @@ For your first scan, try a safe local scan:
 **Targets:** `127.0.0.1` (your own computer)
 
 **Options:**
-- ☑ Top Ports (100)
-- ☑ Service Version Detection
+- Top Ports (100)
+- Service Version Detection
 
 Click **Start Scan**
 
@@ -230,17 +241,21 @@ Click **Start Scan**
 You should see:
 - A loading spinner while scanning
 - A network graph appears with:
-  - One blue circle (your host)
-  - Pink boxes for each open service
+  - One circle for your host, coloured by its subnet
+  - A hub for that subnet, connected to the host (turn this off with "Show Network Connections")
 - Scan information panel on the left
+- A legend listing the detected subnet and how many devices are in it
+
+Click your host to see its open ports appear around it as pink dots.
 
 ### 4. Interact with the Graph
 
-- **Click** a node to see details
-- **Hover** for quick info
+- **Click** a device to show or hide its open ports
+- **Hover** over a device for its addresses, subnet, hostname, OS, MAC and roles
 - **Drag** to move nodes
-- **Scroll** to zoom
-- **Click "Reset View"** to reset zoom
+- **Scroll** to zoom, drag the background to pan
+- **Click "Reset View"** to fit the whole map in the window
+- **Export JSON** or **Export Image** (PNG, JPG or SVG) to save the result
 
 ---
 
@@ -257,10 +272,10 @@ ls venv/
 source venv/bin/activate
 pip list | grep -E "Flask|networkx|pyvis"
 
-# Should show:
-# Flask          3.0.0
-# flask-cors     4.0.0
-# networkx       3.2.1
+# Should show something like this (newer patch versions are fine):
+# Flask          3.1.3
+# flask-cors     6.0.5
+# networkx       3.6.1
 # pyvis          0.3.2
 ```
 
@@ -273,10 +288,10 @@ REM Check Python packages
 venv\Scripts\activate.bat
 pip list | findstr /I "Flask networkx pyvis"
 
-REM Should show:
-REM Flask          3.0.0
-REM flask-cors     4.0.0
-REM networkx       3.2.1
+REM Should show something like this (newer patch versions are fine):
+REM Flask          3.1.3
+REM flask-cors     6.0.5
+REM networkx       3.6.1
 REM pyvis          0.3.2
 ```
 
@@ -311,7 +326,7 @@ nmap -oX test_scan.xml scanme.nmap.org
 
 **Windows Solution:**
 1. Uninstall Python
-2. Reinstall and CHECK ☑ "Add Python to PATH"
+2. Reinstall and tick "Add Python to PATH"
 3. Restart Command Prompt
 
 **Linux Solution:**
@@ -342,14 +357,19 @@ sudo dnf install nmap  # Fedora/RHEL
 # Run with sudo for advanced scans (OS detection, SYN scan)
 sudo python network_mapper_main.py
 
-# Or modify scan options (avoid -O, use -sT)
+# Or let the launcher ask for sudo itself
+python startup.py
+
+# Or scan without OS Detection, which needs raw socket access
 ```
 
 **Windows Solution:**
 Run Command Prompt as Administrator:
 1. Search "cmd"
 2. Right-click → "Run as administrator"
-3. Navigate to folder and run windows_setup.bat
+3. Navigate to folder and run start_app.bat
+
+Or run `python startup.py`, which asks for elevation itself.
 
 ### Issue: "Port 5000 already in use"
 
@@ -471,7 +491,7 @@ If you encounter issues not covered here:
 
 ## Success Checklist
 
-- [ ] Python 3.7+ installed and in PATH
+- [ ] Python 3.11+ installed and in PATH
 - [ ] Nmap installed and in PATH
 - [ ] Project files extracted completely
 - [ ] Setup script ran without errors
@@ -481,7 +501,7 @@ If you encounter issues not covered here:
 - [ ] Test scan of 127.0.0.1 completes successfully
 - [ ] Network graph displays correctly
 
-If all items are checked, installation is complete! 🎉
+If all items are checked, installation is complete.
 
 ---
 

@@ -1,13 +1,15 @@
 #!/bin/bash
 # start_scripts.sh - Quick start script for Linux
 
+# Always work from the folder this script lives in, wherever it was run from
+cd "$(dirname "$(readlink -f "$0")")"
+
 echo "Starting Network Topology Mapper..."
 
 # Check if virtual environment exists
-if [ ! -d "venv" ]; then
+if [ ! -f "venv/bin/activate" ]; then
     echo "Virtual environment not found. Running setup..."
-    ./linux_setup.sh
-    exit 0
+    exec bash ./linux_setup.sh
 fi
 
 # Activate virtual environment
@@ -23,4 +25,4 @@ fi
 echo "Access the application at: http://localhost:5000"
 echo "Press Ctrl+C to stop"
 echo ""
-python network_mapper_main.py
+exec python network_mapper_main.py

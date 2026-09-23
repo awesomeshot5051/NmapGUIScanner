@@ -1,0 +1,5 @@
+# Windows batch files need CRLF line endings for cmd.exe to parse them reliably.
+# Shell scripts must stay LF, or bash fails with "bad interpreter" on Linux.
+*.bat text eol=crlf
+*.sh  text eol=lf
+*.py  text eol=lf
