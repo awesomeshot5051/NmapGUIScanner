@@ -2,6 +2,7 @@ let simulation, svg, g, link, node, label, currentGraph;
 let eventSource = null;
 let expandedNodes = new Set();
 let showInfra = true;
+let weakHighlightEnabled = false;
 let width = 1200;
 let height = 800;
 let vlanCentroids = {};
@@ -46,6 +47,15 @@ document.addEventListener('DOMContentLoaded', () => {
     infraToggle.addEventListener('change', (e) => {
         showInfra = e.target.checked;
         refreshGraph();
+    });
+
+    const weakToggle = document.getElementById('toggle-weak-services');
+    weakHighlightEnabled = weakToggle.checked;
+    weakToggle.addEventListener('change', (e) => {
+        weakHighlightEnabled = e.target.checked;
+        // Just re-sync colors on whatever's already drawn - no need to
+        // refetch or re-run the layout for a display-only toggle.
+        if (currentGraph) updateVisualization(currentGraph, { reheat: 0, fit: false });
     });
 });
 
@@ -178,6 +188,13 @@ function showTooltip(event, d) {
         if (d.mac_vendor) content += `<strong>Vendor:</strong> ${d.mac_vendor}<br>`;
         if (d.roles && d.roles.length) content += `<strong>Roles:</strong> ${d.roles.join(", ")}<br>`;
         content += `<strong>Open Ports:</strong> ${d.open_ports_count || (d.ports && d.ports.length) || 0}<br>`;
+        if (d.cves && d.cves.length) {
+            // CVE ids only ever come from the server's CVE_RE match (CVE-####-####...),
+            // so this is safe to drop straight into the link/text without escaping.
+            content += `<strong style="color:#e74c3c">&#9888; Vulnerabilities:</strong><br>` +
+                d.cves.map(id => `&nbsp;&nbsp;<a href="https://nvd.nist.gov/vuln/detail/${id}" target="_blank" rel="noopener noreferrer">${id}</a>`).join('<br>') +
+                '<br>';
+        }
         content += `<em>Click to toggle services</em>`;
     } else if (d.type === "subnet") {
         content += `<strong>Subnet / VLAN:</strong> ${d.subnet}<br>`;
@@ -187,6 +204,7 @@ function showTooltip(event, d) {
         content += `<strong>Service:</strong> ${d.service || ''}<br>`;
         if (d.product) content += `<strong>Product:</strong> ${d.product}<br>`;
         if (d.version) content += `<strong>Version:</strong> ${d.version}<br>`;
+        if (weakHighlightEnabled && d.weak) content += `<strong>&#9888; Weak / insecure service</strong><br>`;
     } else {
         // generic
         if (d.info) content += `${d.info}<br>`;
@@ -241,7 +259,10 @@ function updateVlanLegend(graphData) {
 
 // -------------------- updateVisualization (fast + stable) --------------------
 function nodeFill(d) {
-    return (d.type === 'host' || d.type === 'subnet') ? vlanColor(d.vlan_index) : '#f093fb';
+    if (d.type === 'host') return d.vulnerable ? '#e74c3c' : vlanColor(d.vlan_index);
+    if (d.type === 'subnet') return vlanColor(d.vlan_index);
+    if (d.type === 'service' && weakHighlightEnabled && d.weak) return '#e74c3c';
+    return '#f093fb';
 }
 
 function labelOffset(d) {
@@ -507,6 +528,7 @@ function toggleNodeServices(hostNode) {
                 service: port.service,
                 product: port.product,
                 version: port.version,
+                weak: !!port.weak,
                 parent: nodeId,
                 x: hostNode.x + distance * Math.cos(angle),
                 y: hostNode.y + distance * Math.sin(angle)
@@ -560,6 +582,7 @@ async function startScan() {
         os_detection: document.getElementById('os_detection').checked,
         script_scan: document.getElementById('script_scan').checked,
         snmp_scan: document.getElementById('snmp_scan').checked,
+        vuln_scan: document.getElementById('vuln_scan').checked,
         timing: document.getElementById('timing').value,
         show_terminal: showTerminal,
         show_webpage: showWebpage,

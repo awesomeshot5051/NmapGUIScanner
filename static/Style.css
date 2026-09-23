@@ -124,6 +124,33 @@ select:focus {
     background: rgba(255, 255, 255, 0.08);
 }
 
+/* The <select> itself picks up the dark styling above, but its dropdown
+   list of <option>s doesn't inherit it in most browsers and falls back to
+   a white popup with white/default text - style it explicitly. */
+select option {
+    background: #1a1a2e;
+    color: #e0e0e0;
+}
+
+/* Both sit indented under their radio button, matching the checkbox's width
+   (18px) plus its gap (8px). Inheriting the plain width:100% above adds that
+   26px indent on top of the full sidebar width, so the box runs past the
+   sidebar's right edge - these get their own, narrower widths instead.
+   (ID selectors, not classes, so they're specific enough to beat the
+   input[type=...] rule above - a class selector alone would tie with it and
+   lose, since that rule also matches on the element type.) */
+#custom_ports {
+    width: calc(100% - 26px);
+    margin-left: 26px;
+}
+
+#top_ports_count {
+    /* only ever holds a number from 1-1000, so it doesn't need to be sidebar-wide */
+    width: 90px;
+    margin-left: 26px;
+    margin-bottom: 10px;
+}
+
 .checkbox-group {
     display: flex;
     align-items: center;
@@ -350,6 +377,15 @@ button:disabled {
     line-height: 1.6;
 }
 
+/* The tooltip itself ignores pointer events (so it never blocks hovering the
+   graph underneath it), but a CVE link still needs to be clickable - opting
+   an anchor back into pointer events works even inside a pointer-events:none
+   ancestor. */
+.tooltip-content a {
+    pointer-events: auto;
+    color: #f39c12;
+}
+
 .scan-info {
     background: rgba(0, 0, 0, 0.3);
     padding: 15px;
@@ -472,7 +508,7 @@ button:disabled {
     border-top: 1px solid rgba(255, 255, 255, 0.2);
     padding: 15px;
     overflow-y: auto;
-    font-family: 'Courier New', monospace;
+    font-family: var(--app-font);
     font-size: 0.85em;
     line-height: 1.4;
     color: #00ff00;

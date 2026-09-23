@@ -32,7 +32,7 @@
                         <input type="radio" name="port_mode" id="top_ports" value="top" checked>
                         <label for="top_ports">Top Ports</label>
                     </div>
-                    <label for="top_ports_count"></label><input type="number" id="top_ports_count" value="100" min="1" max="1000" style="margin-left: 26px; margin-bottom: 10px;">
+                    <label for="top_ports_count"></label><input type="number" id="top_ports_count" value="100" min="1" max="1000">
 
                     <div class="checkbox-group">
                         <input type="radio" name="port_mode" id="all_ports" value="all">
@@ -43,7 +43,7 @@
                         <input type="radio" name="port_mode" id="custom_ports_radio" value="custom">
                         <label for="custom_ports_radio">Custom Ports</label>
                     </div>
-                    <label for="custom_ports">Custom Ports</label><input type="text" id="custom_ports" placeholder="22,80,443,8080" style="margin-left: 26px;">
+                    <label for="custom_ports">Custom Ports</label><input type="text" id="custom_ports" placeholder="22,80,443,8080">
                 </div>
 
                 <div class="form-group">
@@ -64,6 +64,10 @@
                     <div class="checkbox-group">
                         <input type="checkbox" id="snmp_scan">
                         <label for="snmp_scan">SNMP Discovery</label>
+                    </div>
+                    <div class="checkbox-group">
+                        <input type="checkbox" id="vuln_scan">
+                        <label for="vuln_scan">Vulnerability Scan (CVE Detection)</label>
                     </div>
 
                     <!-- NEW: hostname / common services / weak service toggles -->
@@ -149,6 +153,10 @@
                 <div class="legend-item">
                     <div class="legend-color" style="background: #e74c3c;"></div>
                     <span>Weak / Insecure Service</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #e74c3c;"></div>
+                    <span>Vulnerable Host (CVE found)</span>
                 </div>
                 <div class="legend-item">
                     <div class="legend-color legend-ring"></div>

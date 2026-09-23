@@ -185,6 +185,13 @@ def _explain_bad_xml(xml_file, parse_error):
     return message
 
 
+# Matches the CVE IDs NSE's "vuln" script category writes into its plain-text
+# output (and, for table-based scripts like vulners, into <elem> text) -
+# looked up across a host's whole XML block rather than one script's schema,
+# since the scripts in that category don't all format their findings the same way.
+CVE_RE = re.compile(r"CVE-\d{4}-\d{4,7}", re.IGNORECASE)
+
+
 def parse_nmap_xml(xml_file):
     G = nx.Graph()
     scan_info = {
@@ -242,6 +249,11 @@ def parse_nmap_xml(xml_file):
             mac_addr = mac_elem.get("addr")
             mac_vendor = mac_elem.get("vendor")
 
+        # CVE IDs found anywhere in this host's scripts (NSE "vuln" category,
+        # run when the "Vulnerability Scan" option is checked). Only present
+        # when that scan ran and something matched - most hosts get [].
+        cves = sorted(set(m.upper() for m in CVE_RE.findall(ET.tostring(host, encoding="unicode"))))
+
         node_label = hostname if hostname else addr
         G.add_node(addr,
                    label=node_label,
@@ -252,7 +264,8 @@ def parse_nmap_xml(xml_file):
                    mac=mac_addr,
                    mac_vendor=mac_vendor,
                    type="host",
-                   ports=[])
+                   ports=[],
+                   cves=cves)
 
         for port in host.findall(".//port"):
             portid = port.get("portid")
@@ -424,6 +437,18 @@ def analyze_topology(G, subnet_prefix=24):
 # -------------------------------
 WEAK_SERVICES = {"ftp","telnet","http","pop3","imap","smtp","tftp","rlogin","rsh","finger"}
 
+
+def _is_weak_service(service_name):
+    # Anchored match: "http" must be the whole name or the part before a
+    # "-" (e.g. "http-proxy", "ftp-data"). A plain substring check also
+    # matched the encrypted counterparts of these services - "https",
+    # "ftps"/"sftp", "pop3s", "imaps" all contain one of the weak names -
+    # which flagged secure services as insecure.
+    name = (service_name or "").lower().strip()
+    if not name:
+        return False
+    return any(name == weak or name.startswith(weak + "-") for weak in WEAK_SERVICES)
+
 def _ip_sort_key(ip):
     try:
         addr = ipaddress.ip_address(ip)
@@ -486,6 +511,7 @@ def graph_to_json(G, scan_info, show_services=False, show_infra=False, weak_high
         mac = next((m.get("mac") for m in members if m.get("mac")), None)
         vendor = next((m.get("mac_vendor") for m in members if m.get("mac_vendor")), None)
         best_os = max(members, key=lambda m: m.get("os_accuracy") or 0)
+        cves = sorted(set(c for m in members for c in (m.get("cves") or [])))
 
         ports = []
         seen_ports = set()
@@ -494,7 +520,14 @@ def graph_to_json(G, scan_info, show_services=False, show_infra=False, weak_high
                 key = (p.get("protocol"), p.get("port"))
                 if key not in seen_ports:
                     seen_ports.add(key)
-                    ports.append(p)
+                    port_entry = dict(p)
+                    # Always computed (not gated behind weak_highlight) so the
+                    # client has it on every port and can decide when to show
+                    # it - "Highlight Weak Services" is a display toggle, not
+                    # something that should require a fresh scan/upload to
+                    # take effect.
+                    port_entry["weak"] = _is_weak_service(port_entry.get("service"))
+                    ports.append(port_entry)
 
         label = hostname or " / ".join(ids)
         if "Gateway" in node_roles:
@@ -517,7 +550,9 @@ def graph_to_json(G, scan_info, show_services=False, show_infra=False, weak_high
             "roles": node_roles,
             "subnet": interfaces[0]["subnet"],
             "vlan_index": interfaces[0]["vlan_index"],
-            "vlan_indices": [vlan_index_of[c] for c in device_subnets]
+            "vlan_indices": [vlan_index_of[c] for c in device_subnets],
+            "cves": cves,
+            "vulnerable": bool(cves)
         })
 
         # Add service nodes if requested
@@ -540,8 +575,8 @@ def graph_to_json(G, scan_info, show_services=False, show_infra=False, weak_high
                     "version": port.get('version')
                 }
                 # Mark weak services if requested
-                if weak_highlight and any(ws in service_name for ws in WEAK_SERVICES):
-                    service_node["color"] = "red"
+                if weak_highlight and _is_weak_service(service_name):
+                    service_node["color"] = "#e74c3c"
                     service_node["risk"] = "weak"
                 nodes.append(service_node)
                 links.append({
@@ -680,6 +715,12 @@ def start_scan():
         # NSE script scans if requested
         if data.get("script_scan"):
             script_list.append("default,discovery")
+
+        # Vulnerability scan: NSE's "vuln" category, which checks services for
+        # known CVEs. It's a safe category (no exploitation), but it runs a lot
+        # of scripts against every open port, so it's noticeably slower.
+        if data.get("vuln_scan"):
+            script_list.append("vuln")
 
         # Hostname detection: reverse DNS, NetBIOS, DNS service probe
         if hostname_detection:
